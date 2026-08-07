@@ -86,6 +86,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec prisma generate
+      # 통합 테스트는 실제 스키마를 요구한다 (G-1·G-3 하니스는 자체 마이그레이션을 하지 않는다)
+      - run: pnpm exec prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
       - run: pnpm test
 
   commitlint:
