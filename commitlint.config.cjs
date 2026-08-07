@@ -8,5 +8,7 @@ module.exports = {
       'always',
       ['feat', 'fix', 'ui', 'refactor', 'docs', 'test', 'chore', 'ci', 'build', 'perm'],
     ],
+    // 한국어 제목에 WP-0·G-2·DB 같은 라틴 약어가 섞이면 대문자 제목으로 오판되므로 해제
+    'subject-case': [0],
   },
 };
