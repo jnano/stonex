@@ -21,6 +21,7 @@ import { AuthGuard, TOKEN_VERIFIER } from './authorization/guards/auth.guard';
 import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
 import { MembersService } from './members/members.service';
+import { RolesService } from './admin/roles.service';
 import { SuperAdminGuardService } from './members/super-admin-guard.service';
 import { AuthService } from './auth/auth.service';
 import { TokenService } from './auth/token.service';
@@ -70,6 +71,7 @@ import {
     TotpService,
     AuthService,
     MembersService,
+    RolesService,
     SuperAdminGuardService,
     { provide: MAILER, useClass: ConsoleMailer },
     { provide: BREACH_CHECKER, useClass: HibpBreachChecker },

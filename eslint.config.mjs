@@ -3,7 +3,7 @@ import { g2RestrictedSyntax } from './governance/eslint-rules/g2-rules.mjs';
 
 export default tseslint.config(
   {
-    ignores: ['**/node_modules/**', '**/.next/**', '**/dist/**', 'docs/**', '_to_delete/**', 'packages/db/generated/**'],
+    ignores: ['**/node_modules/**', '**/.next/**', '**/dist/**', 'docs/**', '_to_delete/**', 'packages/db/generated/**', 'apps/web/next-env.d.ts' /* Next 생성 파일 */],
   },
   ...tseslint.configs.recommended,
   {

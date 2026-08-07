@@ -20,3 +20,6 @@ packages/db/generated/
 
 # Redis 로컬 스냅샷
 dump.rdb
+
+# Next.js 빌드 산출물
+apps/web/.next/

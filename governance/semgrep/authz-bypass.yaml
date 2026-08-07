@@ -17,14 +17,13 @@ rules:
         - apps/api/test/
         - db/seeds/
 
-  - id: authz-bypass-role-tables
+  - id: authz-bypass-user-roles
     languages: [ts]
     severity: ERROR
     message: >-
-      user_roles/role_permissions 직접 접근 금지 — 역할 부여/회수는 우위·부분집합 검사(§4.6)와
-      감사 기록(INV-6)을 동반하는 회원 관리 서비스(WP-5)를 경유해야 합니다.
-    # 조회(findMany/findUnique/count 등)는 허용하고 **변경 메서드만** 차단한다.
-    # 조회까지 막으면 스냅샷 재구성·보유자 조회 같은 정상 코드가 걸려 룰 신뢰도가 떨어진다.
+      user_roles 직접 변경 금지 — 역할 부여/회수는 우위·부분집합 검사(§4.6)와 감사 기록(INV-6)을
+      한 트랜잭션으로 묶는 RoleGrantService 를 경유해야 합니다.
+    # 조회는 허용하고 변경 메서드만 차단한다(조회까지 막으면 정상 코드가 걸려 룰 신뢰도가 떨어진다)
     pattern-either:
       - pattern: $DB.userRole.create(...)
       - pattern: $DB.userRole.createMany(...)
@@ -33,6 +32,19 @@ rules:
       - pattern: $DB.userRole.upsert(...)
       - pattern: $DB.userRole.delete(...)
       - pattern: $DB.userRole.deleteMany(...)
+    paths:
+      exclude:
+        - apps/api/src/authorization/role-grant.service.ts
+        - apps/api/test/
+        - db/seeds/
+
+  - id: authz-bypass-role-permissions
+    languages: [ts]
+    severity: ERROR
+    message: >-
+      role_permissions 직접 변경 금지 — 매핑 편집은 "보유하지 않은 Permission 부여 불가"(§10.1)와
+      보유자 pv 무효화(§8.3)를 함께 수행하는 RolesService.setPermissions 를 경유해야 합니다.
+    pattern-either:
       - pattern: $DB.rolePermission.create(...)
       - pattern: $DB.rolePermission.createMany(...)
       - pattern: $DB.rolePermission.update(...)
@@ -42,8 +54,8 @@ rules:
       - pattern: $DB.rolePermission.deleteMany(...)
     paths:
       exclude:
-        # 역할 부여/회수의 유일한 통로 — 부여와 감사를 한 트랜잭션으로 묶는다
-        - apps/api/src/authorization/role-grant.service.ts
+        # 매핑 편집의 유일한 통로 (ADM-3)
+        - apps/api/src/admin/roles.service.ts
         - apps/api/test/
         - db/seeds/
 
