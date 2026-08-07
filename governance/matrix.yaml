@@ -1,0 +1,5 @@
+# G-1 권한 매트릭스 골든 파일 — 자리(placeholder)
+# WP-8에서 최초 박제한다: "비인증 + 역할 5종(6행) × Phase 1 전체 API → 허용/거부"
+# 그 전까지 CI의 g1-matrix 잡은 skip 상태로 표시된다 (작업지시서 WP-0 항목 3, RT-3).
+# perm: 타입 커밋은 이 파일의 변경을 동반해야 한다 (perm-check 워크플로).
+placeholder: true

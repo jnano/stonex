@@ -1,0 +1,45 @@
+# 로컬 개발 환경 (작업지시서 WP-0 항목 6)
+# 기동: docker compose up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: stonex
+      POSTGRES_PASSWORD: stonex_dev # 개발 전용. 운영 값은 환경변수/시크릿 관리
+      POSTGRES_DB: stonex
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U stonex']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Phase 2(파일 업로드) 대비 정의. Phase 1에서는 미사용
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: stonex
+      MINIO_ROOT_PASSWORD: stonex_dev_minio
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - miniodata:/data
+
+volumes:
+  pgdata:
+  miniodata:
