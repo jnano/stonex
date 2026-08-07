@@ -42,6 +42,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { code: 'admin.role.manage', scope: 'global', module: 'core', description: '역할 생성·수정·삭제, 역할-권한 매핑 편집' },
   { code: 'admin.audit.read', scope: 'global', module: 'core', description: '감사 로그 조회' },
   { code: 'system.settings.manage', scope: 'global', module: 'core', description: '시스템 설정 변경' },
+  { code: 'File.Read', scope: 'owned', module: '', description: '' }, // G-4 실증용 위반: 대문자·module 누락
 ];
 
 /**
