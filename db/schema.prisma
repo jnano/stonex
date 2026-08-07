@@ -1,0 +1,204 @@
+// 기획서 permission-system-spec-v1.6.md §5.2 DDL의 Prisma 표현.
+// 주의(R-1): 다음 항목은 Prisma가 표현하지 못해 마이그레이션 SQL에 수기로 추가한다 —
+//   permissions.scope / resource_grants.effect 의 CHECK 제약,
+//   files 의 부분 인덱스(WHERE status='ACTIVE'),
+//   audit_logs 파티션 테이블 전체(본 스키마에 모델 없음, WP-6a에서 raw SQL로 접근).
+// 이 이중 관리 지점의 목록은 db/migrations/README.md 가 유일한 출처다.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // 접속 URL은 Prisma 7 규칙에 따라 prisma.config.ts 에서 주입한다
+}
+
+model Tenant {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String   @db.VarChar(100)
+  status     String   @default("ACTIVE") @db.VarChar(20)
+  created_at DateTime @default(now()) @db.Timestamptz()
+
+  users            User[]
+  roles            Role[]
+  role_permissions RolePermission[]
+  user_roles       UserRole[]
+  resource_grants  ResourceGrant[]
+  files            File[]
+  domains          Domain[]
+
+  @@map("tenants")
+}
+
+model User {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                String    @db.Uuid
+  email                    String    @db.VarChar(255)
+  password_hash            String    @db.VarChar(255)
+  name                     String    @db.VarChar(100)
+  status                   String    @default("PENDING") @db.VarChar(20)
+  perm_version             Int       @default(1)
+  must_change_password     Boolean   @default(false)
+  totp_enrollment_required Boolean   @default(false)
+  totp_secret              String?   @db.VarChar(255)
+  created_at               DateTime  @default(now()) @db.Timestamptz()
+  updated_at               DateTime  @default(now()) @updatedAt @db.Timestamptz()
+  deleted_at               DateTime? @db.Timestamptz()
+
+  tenant         Tenant          @relation(fields: [tenant_id], references: [id])
+  user_roles     UserRole[]      @relation("subject")
+  roles_granted  UserRole[]      @relation("granter")
+  perms_granted  RolePermission[]
+  grants_granted ResourceGrant[]
+  files          File[]
+  domains        Domain[]
+  refresh_tokens RefreshToken[]
+
+  @@unique([tenant_id, email])
+  @@map("users")
+}
+
+model Permission {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String   @unique @db.VarChar(100)
+  description String   @db.VarChar(255)
+  scope       String   @default("global") @db.VarChar(10) // CHECK (global|owned) — 수기 SQL
+  module      String   @default("core") @db.VarChar(50)
+  created_at  DateTime @default(now()) @db.Timestamptz()
+
+  role_permissions RolePermission[]
+  resource_grants  ResourceGrant[]
+
+  @@map("permissions")
+}
+
+model Role {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id     String   @db.Uuid
+  code          String   @db.VarChar(50)
+  name          String   @db.VarChar(100)
+  display_order Int      @default(0) // 정렬·표시 전용. 보안 규칙 사용 금지(INV-2)
+  requires_2fa  Boolean  @default(false) // 보유 계정에 2FA 강제 (§10.4)
+  is_system     Boolean  @default(false)
+  created_at    DateTime @default(now()) @db.Timestamptz()
+  updated_at    DateTime @default(now()) @updatedAt @db.Timestamptz()
+
+  tenant           Tenant           @relation(fields: [tenant_id], references: [id])
+  role_permissions RolePermission[]
+  user_roles       UserRole[]
+
+  @@unique([tenant_id, code])
+  @@map("roles")
+}
+
+model RolePermission {
+  tenant_id     String   @db.Uuid
+  role_id       String   @db.Uuid
+  permission_id String   @db.Uuid
+  granted_by    String?  @db.Uuid
+  granted_at    DateTime @default(now()) @db.Timestamptz()
+
+  tenant     Tenant     @relation(fields: [tenant_id], references: [id])
+  role       Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Restrict)
+  granter    User?      @relation(fields: [granted_by], references: [id])
+
+  @@id([role_id, permission_id])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  tenant_id  String    @db.Uuid
+  user_id    String    @db.Uuid
+  role_id    String    @db.Uuid
+  granted_by String?   @db.Uuid
+  granted_at DateTime  @default(now()) @db.Timestamptz()
+  expires_at DateTime? @db.Timestamptz()
+
+  tenant  Tenant @relation(fields: [tenant_id], references: [id])
+  user    User   @relation("subject", fields: [user_id], references: [id], onDelete: Cascade)
+  role    Role   @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  granter User?  @relation("granter", fields: [granted_by], references: [id])
+
+  @@id([user_id, role_id])
+  @@index([role_id]) // idx_user_roles_role — 보유자 전원 조회(§8.3 무효화)
+  @@map("user_roles")
+}
+
+model ResourceGrant {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id     String    @db.Uuid
+  subject_type  String    @default("USER") @db.VarChar(20)
+  subject_id    String    @db.Uuid
+  resource_type String    @db.VarChar(50)
+  resource_id   String    @db.Uuid
+  permission_id String    @db.Uuid
+  effect        String    @default("ALLOW") @db.VarChar(10) // CHECK (ALLOW|DENY) — 수기 SQL
+  conditions    Json?     // 확장 지점: ABAC 조건 (§9.3)
+  granted_by    String    @db.Uuid
+  granted_at    DateTime  @default(now()) @db.Timestamptz()
+  expires_at    DateTime? @db.Timestamptz()
+
+  tenant     Tenant     @relation(fields: [tenant_id], references: [id])
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+  granter    User       @relation(fields: [granted_by], references: [id])
+
+  @@unique([subject_type, subject_id, resource_type, resource_id, permission_id])
+  @@index([subject_id, resource_type, resource_id], map: "idx_grants_lookup")
+  @@index([resource_type, resource_id], map: "idx_grants_resource")
+  @@map("resource_grants")
+}
+
+model File {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id   String    @db.Uuid
+  owner_id    String    @db.Uuid
+  name        String    @db.VarChar(255)
+  storage_key String    @db.VarChar(512) // 외부 노출 금지(§10.2)
+  size_bytes  BigInt
+  mime_type   String    @db.VarChar(127)
+  checksum    String    @db.VarChar(64)
+  status      String    @default("ACTIVE") @db.VarChar(20)
+  created_at  DateTime  @default(now()) @db.Timestamptz()
+  deleted_at  DateTime? @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+  owner  User   @relation(fields: [owner_id], references: [id])
+
+  @@map("files")
+}
+
+model Domain {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id    String    @db.Uuid
+  owner_id     String    @db.Uuid
+  fqdn         String    @db.VarChar(253)
+  status       String    @default("UNVERIFIED") @db.VarChar(20)
+  verify_token String?   @db.VarChar(64)
+  verified_at  DateTime? @db.Timestamptz()
+  created_at   DateTime  @default(now()) @db.Timestamptz()
+  deleted_at   DateTime? @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+  owner  User   @relation(fields: [owner_id], references: [id])
+
+  @@unique([tenant_id, fqdn])
+  @@map("domains")
+}
+
+model RefreshToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String    @db.Uuid
+  token_hash String    @unique @db.VarChar(64) // SHA-256, 원문 미저장
+  family_id  String    @db.Uuid
+  expires_at DateTime  @db.Timestamptz()
+  revoked_at DateTime? @db.Timestamptz()
+  created_at DateTime  @default(now()) @db.Timestamptz()
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([family_id], map: "idx_refresh_family")
+  @@index([user_id], map: "idx_refresh_user")
+  @@map("refresh_tokens")
+}

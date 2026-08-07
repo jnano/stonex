@@ -114,11 +114,19 @@ jobs:
       - run: echo "placeholder"
 
   g4-seed:
-    name: 'G-4 시드 정합성 (자리 — WP-1 가동)'
-    if: ${{ false }}
+    name: 'G-4 시드 정합성'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "placeholder"
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm g4
 
   g5-endpoints:
     name: 'G-5 미선언 엔드포인트 (자리 — WP-3 가동)'

@@ -3,3 +3,8 @@
 # 그 전까지 CI의 g1-matrix 잡은 skip 상태로 표시된다 (작업지시서 WP-0 항목 3, RT-3).
 # perm: 타입 커밋은 이 파일의 변경을 동반해야 한다 (perm-check 워크플로).
 placeholder: true
+# WP-1: 시드 도입됨 — Permission 26종 · 역할 5종 (db/seeds/permissions.ts).
+# API가 아직 없어 매트릭스 본체는 비어 있으며, WP-8에서 "비인증+역할 5종(6행) × API"로 박제한다.
+seed_state:
+  permissions: 26
+  roles: [MEMBER, FILE_MANAGER, DOMAIN_MANAGER, OPERATOR, SUPER_ADMIN]
