@@ -1,0 +1,19 @@
+{
+  "name": "stonex",
+  "private": true,
+  "version": "0.1.0",
+  "description": "권한 관리 웹 애플리케이션 모노레포 (기획서 permission-system-spec-v1.6.md)",
+  "scripts": {
+    "lint": "eslint . && node governance/eslint-rules/selftest.mjs",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.0",
+    "@commitlint/config-conventional": "^19.8.0",
+    "eslint": "^9.24.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.29.0"
+  },
+  "packageManager": "pnpm@11.1.3"
+}
