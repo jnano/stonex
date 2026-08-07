@@ -3,7 +3,7 @@
  * DB의 실제 상태를 정의 파일과 대조한다. 실행: pnpm db:verify
  */
 import 'dotenv/config';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { DEFAULT_TENANT_ID, PERMISSIONS, ROLES, expandWildcards } from './permissions';
 

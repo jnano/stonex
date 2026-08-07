@@ -1,0 +1,11 @@
+{
+  "name": "@stonex/db",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Prisma 생성 클라이언트 (db/schema.prisma → generated/). pnpm 워크스페이스 간 단일 인스턴스 공유용",
+  "main": "./generated/index.js",
+  "types": "./generated/index.d.ts",
+  "dependencies": {
+    "@prisma/client": "^7.9.1"
+  }
+}

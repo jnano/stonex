@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { HealthController } from './health.controller';
+import { PrismaService } from './prisma/prisma.service';
+import { AuditService } from './audit/audit.service';
 
 /**
  * 루트 모듈.
@@ -8,5 +10,7 @@ import { HealthController } from './health.controller';
  */
 @Module({
   controllers: [HealthController],
+  providers: [PrismaService, AuditService],
+  exports: [],
 })
 export class AppModule {}

@@ -37,11 +37,28 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma generate # @stonex/db 생성 클라이언트 (미커밋 산출물)
       - run: pnpm typecheck
 
   test:
     name: test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: stonex
+          POSTGRES_PASSWORD: stonex
+          POSTGRES_DB: stonex_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stonex"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -52,6 +69,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma generate
       - run: pnpm test
 
   commitlint:
