@@ -26,8 +26,9 @@ rules:
       - pattern: $DB.rolePermission.$METHOD(...)
     paths:
       exclude:
-        - apps/api/src/authorization/
-        - apps/api/src/members/ # WP-5 회원 관리 서비스 (예정 위치)
+        # 역할 부여/회수의 유일한 통로 — 부여와 감사를 한 트랜잭션으로 묶는다
+        - apps/api/src/authorization/role-grant.service.ts
+        - apps/api/src/authorization/snapshot.service.ts # 조회 전용
         - apps/api/test/
         - db/seeds/
 

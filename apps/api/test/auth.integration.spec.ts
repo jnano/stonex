@@ -16,6 +16,7 @@ import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { AuthService } from '../src/auth/auth.service';
 import { AuditService } from '../src/audit/audit.service';
+import { RoleGrantService } from '../src/authorization/role-grant.service';
 import { PasswordService, AllowAllBreachChecker } from '../src/auth/password.service';
 import { TokenService } from '../src/auth/token.service';
 import { TotpService } from '../src/auth/totp.service';
@@ -82,7 +83,7 @@ describe('WP-2 인증 (실 DB)', () => {
     mailer = new CapturingMailer();
     tokens = new TokenService();
     auth = new AuthService(
-      p, new AuditService(),
+      p, new RoleGrantService(new AuditService()),
       new PasswordService(new AllowAllBreachChecker()),
       tokens, new TotpService(), mailer,
     );

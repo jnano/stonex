@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import type { Prisma } from '@stonex/db';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuditService } from '../audit/audit.service';
+import { RoleGrantService } from '../authorization/role-grant.service';
 import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
 import { TotpService } from './totp.service';
@@ -26,7 +26,7 @@ export interface TokenPair {
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly audit: AuditService,
+    private readonly roleGrants: RoleGrantService,
     private readonly passwords: PasswordService,
     private readonly tokens: TokenService,
     private readonly totp: TotpService,
@@ -89,19 +89,15 @@ export class AuthService {
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.verificationToken.update({ where: { id: record.id }, data: { used_at: new Date() } });
       await tx.user.update({ where: { id: record.user_id }, data: { status: 'ACTIVE' } });
-      await tx.userRole.upsert({
-        where: { user_id_role_id: { user_id: record.user_id, role_id: memberRole.id } },
-        update: {},
-        create: { tenant_id: DEFAULT_TENANT_ID, user_id: record.user_id, role_id: memberRole.id },
-      });
-      // 기록 실패 시 위 변경 전체가 롤백된다
-      await this.audit.record(tx, {
+      // 역할 부여는 RoleGrantService 를 통해서만 한다 — 부여와 감사가 항상 함께 묶인다.
+      // 기록 실패 시 상태 전환·부여 전체가 롤백된다(INV-6).
+      await this.roleGrants.grant(tx, {
         tenantId: DEFAULT_TENANT_ID,
+        userId: record.user_id,
+        roleId: memberRole.id,
+        roleCode: 'MEMBER',
         actorId: null, // 시스템 행위
-        action: 'role.grant',
-        targetType: 'user',
-        targetId: record.user_id,
-        detail: { before: { roles: [], status: 'PENDING' }, after: { roles: ['MEMBER'], status: 'ACTIVE' } },
+        before: { roles: [], status: 'PENDING' },
       });
     });
   }

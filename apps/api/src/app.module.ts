@@ -8,6 +8,7 @@ import { AuthorizationService, GRANT_STORE } from './authorization/authorization
 import { PrismaGrantStore } from './authorization/grant.store';
 import { SnapshotService } from './authorization/snapshot.service';
 import { PolicyService } from './authorization/policy.service';
+import { RoleGrantService } from './authorization/role-grant.service';
 import { ResourceLoaderRegistry } from './authorization/resource-loader';
 import { AuthGuard, TOKEN_VERIFIER } from './authorization/guards/auth.guard';
 import { PermissionGuard } from './authorization/guards/permission.guard';
@@ -46,6 +47,7 @@ import {
     AuditService,
     SnapshotService,
     PolicyService,
+    RoleGrantService,
     ResourceLoaderRegistry,
     { provide: GRANT_STORE, useClass: PrismaGrantStore },
     AuthorizationService,
