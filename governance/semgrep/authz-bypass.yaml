@@ -11,7 +11,9 @@ rules:
       - pattern: $DB.resourceGrant.$METHOD(...)
     paths:
       exclude:
-        - apps/api/src/authorization/
+        # Grant 변경의 유일한 통로 — 정리·회수가 감사와 함께 이뤄진다
+        - apps/api/src/authorization/resource-grant.service.ts
+        - apps/api/src/authorization/grant.store.ts # 조회 전용(평가기 2·4단계)
         - apps/api/test/
         - db/seeds/
 

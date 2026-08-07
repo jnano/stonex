@@ -17,3 +17,6 @@ docs/권한 관리 웹 애플리케이션 기획서/*
 
 # Prisma 생성 산출물 (CI에서 prisma generate로 재생성)
 packages/db/generated/
+
+# Redis 로컬 스냅샷
+dump.rdb
