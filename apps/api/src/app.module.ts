@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { CONTROLLERS } from './app.controllers';
 import { PrismaService } from './prisma/prisma.service';
 import { AuditService } from './audit/audit.service';
+import { AuditInterceptor } from './audit/audit.interceptor';
+import { AuditPartitionService } from './audit/partition.service';
 import { AuthorizationService, GRANT_STORE } from './authorization/authorization.service';
 import { PrismaGrantStore } from './authorization/grant.store';
 import { SnapshotService } from './authorization/snapshot.service';
@@ -36,6 +39,7 @@ import {
 @Module({
   imports: [
     // 기본 정책 + 인증 API 전용 정책(5회/분 — §10.4)은 컨트롤러에서 @Throttle 로 선택한다
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60_000, limit: 120 },
       { name: 'auth', ttl: 60_000, limit: 5 },
@@ -45,6 +49,7 @@ import {
   providers: [
     PrismaService,
     AuditService,
+    AuditPartitionService,
     SnapshotService,
     PolicyService,
     RoleGrantService,
@@ -68,6 +73,8 @@ import {
     { provide: APP_GUARD, useClass: OnboardingGuard },
     { provide: APP_GUARD, useClass: PermissionGuard },
     { provide: APP_GUARD, useClass: DominanceGuard },
+    // 조회 접근 로그 전용 — 권한 변경 감사는 서비스 계층(recordAudit)이 담당한다(§7.4)
+    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],
 })
 export class AppModule {}
