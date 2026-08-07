@@ -8,7 +8,12 @@ dist/
 .env.local
 .env.*.local
 coverage/
-docs/
+# 설계 문서는 저장소에 두지 않는다(발주자 결정). 단 운영 런북은 예외 —
+# 사고 시 운영자가 저장소에서 즉시 꺼내 볼 수 있어야 하고, scripts/breakglass-drill.sh 와 짝을 이룬다.
+docs/*
+!docs/권한 관리 웹 애플리케이션 기획서/
+docs/권한 관리 웹 애플리케이션 기획서/*
+!docs/권한 관리 웹 애플리케이션 기획서/break-glass-runbook-v1.md
 
 # Prisma 생성 산출물 (CI에서 prisma generate로 재생성)
 packages/db/generated/
