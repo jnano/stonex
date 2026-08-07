@@ -3,7 +3,7 @@
  * 실행: pnpm db:seed  (DATABASE_URL, SEED_SUPER_ADMIN_EMAIL/PASSWORD 필요)
  */
 import 'dotenv/config';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { hash } from '@node-rs/argon2';
 import { DEFAULT_TENANT_ID, PERMISSIONS, ROLES, expandWildcards } from './permissions';

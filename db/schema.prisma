@@ -7,6 +7,9 @@
 
 generator client {
   provider = "prisma-client-js"
+  // 워크스페이스 공용 패키지(@stonex/db)로 출력 — pnpm 격리 환경에서 앱별로
+  // 서로 다른 @prisma/client 인스턴스가 잡혀 미생성 클라이언트를 참조하는 문제 방지
+  output   = "../packages/db/generated"
 }
 
 datasource db {

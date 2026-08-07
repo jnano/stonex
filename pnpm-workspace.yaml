@@ -1,5 +1,6 @@
 packages:
   - apps/*
+  - packages/*
 allowBuilds:
   # Prisma 엔진 다운로드·esbuild 바이너리 — 정상 동작에 필수
   '@prisma/engines': true

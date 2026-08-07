@@ -9,3 +9,6 @@ dist/
 .env.*.local
 coverage/
 docs/
+
+# Prisma 생성 산출물 (CI에서 prisma generate로 재생성)
+packages/db/generated/
