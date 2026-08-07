@@ -11,8 +11,11 @@
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/throttler": "^6.5.0",
     "@prisma/adapter-pg": "^7.9.1",
     "@stonex/db": "workspace:*",
+    "jose": "^6.2.8",
+    "otplib": "^13.4.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
@@ -32,6 +35,20 @@
     "roots": [
       "<rootDir>/src",
       "<rootDir>/test"
-    ]
+    ],
+    "transformIgnorePatterns": [
+      "/node_modules/\\.pnpm/(?!(jose|otplib|@otplib\\+|@scure|@noble)).*"
+    ],
+    "transform": {
+      "^.+\\.[tj]s$": [
+        "ts-jest",
+        {
+          "tsconfig": {
+            "allowJs": true,
+            "module": "CommonJS"
+          }
+        }
+      ]
+    }
   }
 }

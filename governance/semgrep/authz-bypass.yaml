@@ -36,7 +36,7 @@ rules:
     severity: ERROR
     message: 감사 로그는 append-only 입니다 (§10.3) — UPDATE/DELETE 시도 금지.
     pattern-either:
-      - pattern-regex: (UPDATE|DELETE FROM)\s+audit_logs
+      - pattern-regex: (UPDATE|DELETE FROM)\s+(audit\.)?audit_logs
     paths:
       exclude:
         - apps/api/test/ # 테스트 정리(cleanup)는 허용

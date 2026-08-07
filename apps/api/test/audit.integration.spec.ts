@@ -55,7 +55,7 @@ describe('감사 기록 (INV-6)', () => {
   });
 
   afterAll(async () => {
-    await prisma.$executeRaw`DELETE FROM audit_logs WHERE tenant_id = ${TENANT}::uuid`;
+    await prisma.$executeRaw`DELETE FROM audit.audit_logs WHERE tenant_id = ${TENANT}::uuid`;
     await prisma.userRole.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.role.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.user.deleteMany({ where: { tenant_id: TENANT } });
@@ -100,7 +100,7 @@ describe('감사 기록 (INV-6)', () => {
 
     const rows = await prisma.$queryRaw<
       Array<{ action: string; actor_id: string | null; target_id: string; detail: { before: { roles: string[] }; after: { roles: string[] } } }>
-    >`SELECT action, actor_id, target_id, detail FROM audit_logs
+    >`SELECT action, actor_id, target_id, detail FROM audit.audit_logs
       WHERE tenant_id = ${TENANT}::uuid AND action = 'role.grant' ORDER BY created_at DESC LIMIT 1`;
 
     expect(rows).toHaveLength(1);

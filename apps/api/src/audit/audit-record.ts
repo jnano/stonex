@@ -31,7 +31,7 @@ export interface AuditEntry {
  */
 export async function recordAudit(tx: Prisma.TransactionClient, entry: AuditEntry): Promise<void> {
   await tx.$executeRaw`
-    INSERT INTO audit_logs (tenant_id, actor_id, action, target_type, target_id, detail, ip_address)
+    INSERT INTO audit.audit_logs (tenant_id, actor_id, action, target_type, target_id, detail, ip_address)
     VALUES (
       ${entry.tenantId}::uuid,
       ${entry.actorId}::uuid,

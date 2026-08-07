@@ -2,6 +2,7 @@ import { SetMetadata } from '@nestjs/common';
 
 export const PERMISSION_META = 'authz:permission';
 export const PUBLIC_META = 'authz:public';
+export const AUTH_ONLY_META = 'authz:auth-only';
 export const DOMINANCE_META = 'authz:dominance';
 
 export interface RequirePermissionOptions {
@@ -25,6 +26,14 @@ export const RequirePermission = (code: string, options: RequirePermissionOption
 
 /** 인증 불요 공개 엔드포인트 명시 (§7.3). 암묵적 공개는 존재하지 않는다 */
 export const Public = () => SetMetadata(PUBLIC_META, true);
+
+/**
+ * 인증은 필요하되 Permission 검사 대상이 아닌 엔드포인트 (본인 한정 행위).
+ * 예: 온보딩(§8.5), 내 프로필 조회(MEM-1 — "없음(본인 한정)").
+ * @Public 으로 대체하면 주체를 확정할 수 없어 본인 판정이 불가능하므로 금지한다.
+ * G-5 는 이 선언도 "선언됨"으로 인정한다.
+ */
+export const AuthenticatedOnly = () => SetMetadata(AUTH_ONLY_META, true);
 
 /**
  * 관리 행위 선언: Permission 통과에 더해 우위 검사(§4.6-1)를 요구한다.
