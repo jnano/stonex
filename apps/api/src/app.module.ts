@@ -15,10 +15,13 @@ import { PrismaGrantStore } from './authorization/grant.store';
 import { SnapshotService } from './authorization/snapshot.service';
 import { PolicyService } from './authorization/policy.service';
 import { RoleGrantService } from './authorization/role-grant.service';
+import { ResourceGrantService } from './authorization/resource-grant.service';
 import { ResourceLoaderRegistry } from './authorization/resource-loader';
 import { AuthGuard, TOKEN_VERIFIER } from './authorization/guards/auth.guard';
 import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
+import { MembersService } from './members/members.service';
+import { SuperAdminGuardService } from './members/super-admin-guard.service';
 import { AuthService } from './auth/auth.service';
 import { TokenService } from './auth/token.service';
 import { TotpService } from './auth/totp.service';
@@ -59,12 +62,15 @@ import {
     SnapshotService,
     PolicyService,
     RoleGrantService,
+    ResourceGrantService,
     ResourceLoaderRegistry,
     { provide: GRANT_STORE, useClass: PrismaGrantStore },
     AuthorizationService,
     TokenService,
     TotpService,
     AuthService,
+    MembersService,
+    SuperAdminGuardService,
     { provide: MAILER, useClass: ConsoleMailer },
     { provide: BREACH_CHECKER, useClass: HibpBreachChecker },
     {
