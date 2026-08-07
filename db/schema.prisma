@@ -45,6 +45,8 @@ model User {
   must_change_password     Boolean   @default(false)
   totp_enrollment_required Boolean   @default(false)
   totp_secret              String?   @db.VarChar(255)
+  failed_login_count       Int       @default(0) // AUTH-2 잠금 (5회/15분) — WP-2 구현 세부
+  locked_until             DateTime? @db.Timestamptz()
   created_at               DateTime  @default(now()) @db.Timestamptz()
   updated_at               DateTime  @default(now()) @updatedAt @db.Timestamptz()
   deleted_at               DateTime? @db.Timestamptz()
@@ -57,6 +59,7 @@ model User {
   files          File[]
   domains        Domain[]
   refresh_tokens RefreshToken[]
+  verification_tokens VerificationToken[]
 
   @@unique([tenant_id, email])
   @@map("users")
@@ -188,6 +191,22 @@ model Domain {
 
   @@unique([tenant_id, fqdn])
   @@map("domains")
+}
+
+// 이메일 인증(AUTH-1)·비밀번호 재설정(AUTH-4) 토큰 — 해시만 저장, 1회용
+model VerificationToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String    @db.Uuid
+  kind       String    @db.VarChar(20) // EMAIL_VERIFY | PASSWORD_RESET
+  token_hash String    @unique @db.VarChar(64) // SHA-256
+  expires_at DateTime  @db.Timestamptz()
+  used_at    DateTime? @db.Timestamptz()
+  created_at DateTime  @default(now()) @db.Timestamptz()
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, kind])
+  @@map("verification_tokens")
 }
 
 model RefreshToken {

@@ -26,7 +26,7 @@ jobs:
       - name: Semgrep (G-2 2차 — 평가기 우회 의미 패턴)
         run: |
           pipx install semgrep
-          semgrep scan --config governance/semgrep --error apps db
+          semgrep scan --config governance/semgrep --error --quiet apps db
 
   typecheck:
     name: typecheck

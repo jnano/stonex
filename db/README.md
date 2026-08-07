@@ -25,12 +25,22 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 | `permissions.scope` CHECK (global\|owned) | `20260807112119_init` |
 | `resource_grants.effect` CHECK (ALLOW\|DENY) | `20260807112119_init` |
 | `files` 부분 인덱스 `idx_files_owner` (WHERE status='ACTIVE') | `20260807112119_init` |
-| `audit_logs` 파티션 테이블 전체 (Prisma 모델 없음 — raw SQL로만 접근) | `20260807112119_init` |
-| `create_audit_log_partition(month)` 함수 | `20260807112119_init` |
+| `audit.audit_logs` 파티션 테이블 전체 (Prisma 모델 없음 — raw SQL로만 접근) | `20260807130000_audit_schema` |
+| `audit.create_partition(month)` 함수 | `20260807130000_audit_schema` |
+
+## 감사 로그는 전용 스키마 `audit` 에 둔다 (중요)
+
+`audit.audit_logs` 는 월 파티션 테이블이라 Prisma 스키마로 표현할 수 없다. 이를 `public` 에 두면
+**Prisma 가 "스키마에 없는 테이블"을 드리프트로 판정해 마이그레이션에 `DROP TABLE audit_logs` 를 자동 생성**한다
+(WP-2 작업 중 dev·test DB 양쪽에서 실제로 소실됨). 전용 스키마로 분리하면 Prisma 관리 범위 밖이 되어 안전하다.
+
+- 접근은 raw SQL 로만 하며 경로를 항상 `audit.audit_logs` 로 명시한다.
+- **`prisma migrate dev` 로 생성된 마이그레이션에 감사 로그 관련 DROP 구문이 없는지 반드시 확인한다.**
+- 일상 적용은 `pnpm db:migrate`(= `migrate deploy`)를 사용한다.
 
 ## audit_logs 파티션 운영
 
-- 월 단위 RANGE 파티션. 초기 마이그레이션이 당월+익월을 생성한다.
-- **매월 익월 파티션을 선생성해야 한다**: `SELECT create_audit_log_partition((now() + interval '1 month')::date);`
+- 월 단위 RANGE 파티션. 마이그레이션이 당월+익월을 생성한다.
+- **매월 익월 파티션을 선생성해야 한다**: `SELECT audit.create_partition((now() + interval '1 month')::date);`
   - WP-6b에서 스케줄 워커에 편입 예정. 그 전까지는 월 1회 수동 실행.
 - append-only 강제(애플리케이션 DB 계정의 UPDATE/DELETE 권한 제거)는 WP-6b 마이그레이션에서 적용한다.

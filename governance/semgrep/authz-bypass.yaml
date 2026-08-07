@@ -26,8 +26,9 @@ rules:
       - pattern: $DB.rolePermission.$METHOD(...)
     paths:
       exclude:
-        - apps/api/src/authorization/
-        - apps/api/src/members/ # WP-5 회원 관리 서비스 (예정 위치)
+        # 역할 부여/회수의 유일한 통로 — 부여와 감사를 한 트랜잭션으로 묶는다
+        - apps/api/src/authorization/role-grant.service.ts
+        - apps/api/src/authorization/snapshot.service.ts # 조회 전용
         - apps/api/test/
         - db/seeds/
 
@@ -36,7 +37,7 @@ rules:
     severity: ERROR
     message: 감사 로그는 append-only 입니다 (§10.3) — UPDATE/DELETE 시도 금지.
     pattern-either:
-      - pattern-regex: (UPDATE|DELETE FROM)\s+audit_logs
+      - pattern-regex: (UPDATE|DELETE FROM)\s+(audit\.)?audit_logs
     paths:
       exclude:
         - apps/api/test/ # 테스트 정리(cleanup)는 허용

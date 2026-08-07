@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthorizationService } from '../authorization.service';
-import { PERMISSION_META, PUBLIC_META, PermissionRequirement } from '../decorators';
+import { AUTH_ONLY_META, PERMISSION_META, PUBLIC_META, PermissionRequirement } from '../decorators';
 import { ResourceLoaderRegistry } from '../resource-loader';
 import { ResourceRef } from '../types';
 import { AuthedRequest } from './auth.guard';
@@ -31,6 +31,13 @@ export class PermissionGuard implements CanActivate {
       context.getClass(),
     ]);
     if (isPublic === true) return true;
+
+    // 인증만 요구하는 본인 한정 엔드포인트 — AuthGuard 가 주체를 확정했으므로 통과
+    const authOnly = this.reflector.getAllAndOverride<boolean>(AUTH_ONLY_META, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (authOnly === true) return true;
 
     const requirement = this.reflector.get<PermissionRequirement | undefined>(
       PERMISSION_META,

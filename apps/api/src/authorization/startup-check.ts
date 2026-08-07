@@ -1,5 +1,5 @@
 import { PATH_METADATA, METHOD_METADATA } from '@nestjs/common/constants';
-import { PERMISSION_META, PUBLIC_META } from './decorators';
+import { AUTH_ONLY_META, PERMISSION_META, PUBLIC_META } from './decorators';
 
 /**
  * 미선언 엔드포인트 기동 차단 (기획서 §7.3, INV-5).
@@ -24,7 +24,8 @@ export function findUndeclaredEndpoints(controllers: Array<new (...args: any[]) 
       if (!isRoute) continue;
       const declared =
         Reflect.getMetadata(PERMISSION_META, handler) !== undefined ||
-        Reflect.getMetadata(PUBLIC_META, handler) === true;
+        Reflect.getMetadata(PUBLIC_META, handler) === true ||
+        Reflect.getMetadata(AUTH_ONLY_META, handler) === true;
       if (!declared) {
         violations.push(`${controller.name}.${name}`);
       }
