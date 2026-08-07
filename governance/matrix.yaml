@@ -1,10 +1,120 @@
-# G-1 권한 매트릭스 골든 파일 — 자리(placeholder)
-# WP-8에서 최초 박제한다: "비인증 + 역할 5종(6행) × Phase 1 전체 API → 허용/거부"
-# 그 전까지 CI의 g1-matrix 잡은 skip 상태로 표시된다 (작업지시서 WP-0 항목 3, RT-3).
-# perm: 타입 커밋은 이 파일의 변경을 동반해야 한다 (perm-check 워크플로).
-placeholder: true
-# WP-1: 시드 도입됨 — Permission 26종 · 역할 5종 (db/seeds/permissions.ts).
-# API가 아직 없어 매트릭스 본체는 비어 있으며, WP-8에서 "비인증+역할 5종(6행) × API"로 박제한다.
-seed_state:
-  permissions: 26
-  roles: [MEMBER, FILE_MANAGER, DOMAIN_MANAGER, OPERATOR, SUPER_ADMIN]
+# G-1 권한 매트릭스 골든 파일 (기획서 §14.2, RT-5)
+#
+# "비인증(anonymous) + 역할 5종 × Phase 1 전체 API → 허용/거부" 표.
+# test/g1-matrix.spec.ts 가 실제 API 요청으로 이 표를 재생성해 비교한다. 1칸이라도 다르면 CI 실패.
+# 의도한 변경이면 UPDATE_MATRIX=1 로 갱신하고, 그 diff 를 리뷰에서 승인받아야 한다.
+# perm: 커밋은 이 파일의 변경을 동반해야 한다(§16.3-3).
+
+matrix:
+  "GET /health":
+    anonymous: allow
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /me":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /members":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /members/me":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "PATCH /members/me":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /members/:id":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /members/:id/manageable":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "PATCH /members/:id":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "POST /members/:id/ban":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "POST /members/:id/roles":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "DELETE /members/:id":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /admin/roles":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "GET /admin/roles/permissions":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "POST /admin/roles":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "PUT /admin/roles/:id/permissions":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "DELETE /admin/roles/:id":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
