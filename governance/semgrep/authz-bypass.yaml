@@ -1,0 +1,42 @@
+# G-2 2차 — 평가기·PolicyService 우회 의미 패턴 검출 (작업지시서 WP-3 항목 7)
+# 1차(ESLint AST 셀렉터)가 못 잡는 "권한 데이터 직접 접근"을 잡는다. CI lint 잡에서 실행.
+rules:
+  - id: authz-bypass-resource-grants
+    languages: [ts]
+    severity: ERROR
+    message: >-
+      resource_grants 직접 접근 금지 (INV-1) — 평가는 AuthorizationService.can(),
+      조회는 GrantStore, 생성/회수는 공유 서비스(Phase 2)를 경유해야 합니다.
+    patterns:
+      - pattern: $DB.resourceGrant.$METHOD(...)
+    paths:
+      exclude:
+        - apps/api/src/authorization/
+        - apps/api/test/
+        - db/seeds/
+
+  - id: authz-bypass-role-tables
+    languages: [ts]
+    severity: ERROR
+    message: >-
+      user_roles/role_permissions 직접 접근 금지 — 역할 부여/회수는 우위·부분집합 검사(§4.6)와
+      감사 기록(INV-6)을 동반하는 회원 관리 서비스(WP-5)를 경유해야 합니다.
+    pattern-either:
+      - pattern: $DB.userRole.$METHOD(...)
+      - pattern: $DB.rolePermission.$METHOD(...)
+    paths:
+      exclude:
+        - apps/api/src/authorization/
+        - apps/api/src/members/ # WP-5 회원 관리 서비스 (예정 위치)
+        - apps/api/test/
+        - db/seeds/
+
+  - id: audit-logs-mutation
+    languages: [ts]
+    severity: ERROR
+    message: 감사 로그는 append-only 입니다 (§10.3) — UPDATE/DELETE 시도 금지.
+    pattern-either:
+      - pattern-regex: (UPDATE|DELETE FROM)\s+audit_logs
+    paths:
+      exclude:
+        - apps/api/test/ # 테스트 정리(cleanup)는 허용
