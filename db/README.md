@@ -43,4 +43,18 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 - 월 단위 RANGE 파티션. 마이그레이션이 당월+익월을 생성한다.
 - **매월 익월 파티션을 선생성해야 한다**: `SELECT audit.create_partition((now() + interval '1 month')::date);`
   - WP-6b에서 스케줄 워커에 편입 예정. 그 전까지는 월 1회 수동 실행.
-- append-only 강제(애플리케이션 DB 계정의 UPDATE/DELETE 권한 제거)는 WP-6b 마이그레이션에서 적용한다.
+## append-only 강제 (§10.3, WP-6b)
+
+`20260807140000_audit_append_only` 마이그레이션이 애플리케이션 전용 역할 `stonex_app` 을 만들고,
+`audit.audit_logs` 에 대해 **SELECT·INSERT 만** 부여한다(UPDATE/DELETE/TRUNCATE 없음).
+
+- **운영 배포 시 애플리케이션은 반드시 `stonex_app` 역할로 접속해야 한다.** 슈퍼유저로 접속하면
+  이 제약이 적용되지 않아 append-only 보증이 사라진다.
+- 보존 기간 경과 파티션의 아카이브·분리는 관리자 계정의 별도 절차로만 수행한다.
+- 검증: `apps/api/test/audit-ops.integration.spec.ts` 가 `SET LOCAL ROLE stonex_app` 으로
+  UPDATE/DELETE 가 DB 수준에서 거부됨을 실증한다.
+
+## break-glass 비상 회수
+
+`SUPER_ADMIN` 탈취 시의 유일한 회수 경로. 절차서는 `docs/.../break-glass-runbook-v1.md`,
+모의 실행 스크립트는 `scripts/breakglass-drill.sh`(분기 1회 실행 권장).
