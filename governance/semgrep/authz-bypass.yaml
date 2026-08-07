@@ -21,14 +21,27 @@ rules:
     message: >-
       user_roles/role_permissions 직접 접근 금지 — 역할 부여/회수는 우위·부분집합 검사(§4.6)와
       감사 기록(INV-6)을 동반하는 회원 관리 서비스(WP-5)를 경유해야 합니다.
+    # 조회(findMany/findUnique/count 등)는 허용하고 **변경 메서드만** 차단한다.
+    # 조회까지 막으면 스냅샷 재구성·보유자 조회 같은 정상 코드가 걸려 룰 신뢰도가 떨어진다.
     pattern-either:
-      - pattern: $DB.userRole.$METHOD(...)
-      - pattern: $DB.rolePermission.$METHOD(...)
+      - pattern: $DB.userRole.create(...)
+      - pattern: $DB.userRole.createMany(...)
+      - pattern: $DB.userRole.update(...)
+      - pattern: $DB.userRole.updateMany(...)
+      - pattern: $DB.userRole.upsert(...)
+      - pattern: $DB.userRole.delete(...)
+      - pattern: $DB.userRole.deleteMany(...)
+      - pattern: $DB.rolePermission.create(...)
+      - pattern: $DB.rolePermission.createMany(...)
+      - pattern: $DB.rolePermission.update(...)
+      - pattern: $DB.rolePermission.updateMany(...)
+      - pattern: $DB.rolePermission.upsert(...)
+      - pattern: $DB.rolePermission.delete(...)
+      - pattern: $DB.rolePermission.deleteMany(...)
     paths:
       exclude:
         # 역할 부여/회수의 유일한 통로 — 부여와 감사를 한 트랜잭션으로 묶는다
         - apps/api/src/authorization/role-grant.service.ts
-        - apps/api/src/authorization/snapshot.service.ts # 조회 전용
         - apps/api/test/
         - db/seeds/
 

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@stonex/db';
 import { AuditService } from '../audit/audit.service';
+import { PermVersionService } from '../cache/perm-version.service';
 
 export interface RoleGrantInput {
   tenantId: string;
@@ -24,7 +25,10 @@ export interface RoleGrantInput {
  */
 @Injectable()
 export class RoleGrantService {
-  constructor(private readonly audit: AuditService) {}
+  constructor(
+    private readonly audit: AuditService,
+    private readonly permVersion: PermVersionService,
+  ) {}
 
   /** 역할 부여 + 감사 기록 (동일 트랜잭션). 기록 실패 시 부여도 롤백된다 */
   async grant(tx: Prisma.TransactionClient, input: RoleGrantInput): Promise<void> {
@@ -47,6 +51,8 @@ export class RoleGrantService {
       targetId: input.userId,
       detail: { before: input.before ?? {}, after: { role: input.roleCode } },
     });
+    // 권한이 바뀌었으므로 pv 증가(§8.3) — 커밋 대상이며, 캐시 삭제는 flushCache 로 이어진다
+    await this.permVersion.bumpInTx(tx, [input.userId]);
   }
 
   /** 역할 회수 + 감사 기록 (동일 트랜잭션) */
@@ -60,5 +66,11 @@ export class RoleGrantService {
       targetId: input.userId,
       detail: { before: { role: input.roleCode }, after: {} },
     });
+    await this.permVersion.bumpInTx(tx, [input.userId]);
+  }
+
+  /** 트랜잭션 커밋 후 호출 — 캐시 무효화((2)단계). 호출자가 반드시 이어서 수행한다 */
+  async flushCache(userIds: string[]): Promise<void> {
+    await this.permVersion.flushCache(userIds);
   }
 }
