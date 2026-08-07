@@ -12,23 +12,30 @@ export interface AuthedRequest extends Request {
 
 /**
  * 토큰 검증 인터페이스 (§7.4 [1]).
- * WP-3 시점에는 JWT 체계(WP-2)가 없으므로 스텁이 주입된다 — 스텁은 전 요청을 거부한다.
- * WP-2 에서 JWT(sub·tenant·pv·exp) 검증 구현으로 교체하며, pv 불일치 거부(§8.3)도 그때 편입된다.
+ * 서명·만료 검증과 클레임 추출만 담당한다. pv 대조는 AuthGuard 가 스냅샷과 함께 수행한다.
  */
 export interface TokenVerifier {
-  /** Authorization 헤더에서 사용자 id를 확정. 실패 시 null */
-  verify(authorizationHeader: string | undefined): Promise<{ userId: string } | null>;
+  /** Authorization 헤더에서 클레임을 확정. 실패 시 null */
+  verify(authorizationHeader: string | undefined): Promise<{ userId: string; pv: number } | null>;
 }
 
 export const TOKEN_VERIFIER = Symbol('TOKEN_VERIFIER');
 
-/** WP-2 전까지의 기본 구현: 인증 불가 — 공개 엔드포인트 외 전부 401 (Default Deny 정신) */
+/** WP-2 전까지 사용하던 기본 구현 — 전 요청 거부(Default Deny). 테스트 보조용으로 유지 */
 export class RejectAllTokenVerifier implements TokenVerifier {
   async verify(): Promise<null> {
     return null;
   }
 }
 
+/**
+ * 주체 확정 Guard (§7.4 [1], §8.3).
+ *
+ * pv 대조 체인: JWT 의 pv ↔ 스냅샷(캐시)의 pv ↔ (불일치 시) DB 재구성분의 pv.
+ * 캐시가 stale 이어서 생긴 불일치와 실제 권한 회수를 구분하기 위해, 1차 불일치에서 바로 거부하지 않고
+ * DB 에서 재구성해 한 번 더 대조한다. DB 값과도 다르면 Access Token 을 거부하고 재발급을 요구한다
+ * — 이로써 권한 회수가 토큰 만료를 기다리지 않고 수 초 내에 전파된다.
+ */
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
@@ -45,11 +52,18 @@ export class AuthGuard implements CanActivate {
     if (isPublic === true) return true;
 
     const request = context.switchToHttp().getRequest<AuthedRequest>();
-    const verified = await this.verifier.verify(request.headers.authorization);
-    if (!verified) throw new UnauthorizedException();
+    const claims = await this.verifier.verify(request.headers.authorization);
+    if (!claims) throw new UnauthorizedException();
 
-    const subject = await this.snapshots.forUser(verified.userId);
+    let subject = await this.snapshots.forUser(claims.userId);
     if (!subject) throw new UnauthorizedException();
+
+    if (subject.permVersion !== claims.pv) {
+      // 캐시가 오래됐을 수 있으므로 권위 소스(DB)로 한 번 더 확인한다
+      subject = await this.snapshots.rebuildFromDb(claims.userId);
+      if (!subject || subject.permVersion !== claims.pv) throw new UnauthorizedException();
+    }
+
     request.subject = subject;
     return true;
   }

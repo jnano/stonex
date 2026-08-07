@@ -17,6 +17,9 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { AuthService } from '../src/auth/auth.service';
 import { AuditService } from '../src/audit/audit.service';
 import { RoleGrantService } from '../src/authorization/role-grant.service';
+import { PermVersionService } from '../src/cache/perm-version.service';
+import { PermissionCacheService } from '../src/cache/permission-cache.service';
+import { RedisService } from '../src/cache/redis.service';
 import { PasswordService, AllowAllBreachChecker } from '../src/auth/password.service';
 import { TokenService } from '../src/auth/token.service';
 import { TotpService } from '../src/auth/totp.service';
@@ -83,7 +86,11 @@ describe('WP-2 인증 (실 DB)', () => {
     mailer = new CapturingMailer();
     tokens = new TokenService();
     auth = new AuthService(
-      p, new RoleGrantService(new AuditService()),
+      p,
+      new RoleGrantService(
+        new AuditService(),
+        new PermVersionService(p, new PermissionCacheService(new RedisService())),
+      ),
       new PasswordService(new AllowAllBreachChecker()),
       tokens, new TotpService(), mailer,
     );
@@ -232,10 +239,13 @@ describe('WP-2 인증 (실 DB)', () => {
     const pair = await auth.login(email, 'correct-horse-battery');
 
     const { JwtTokenVerifier } = await import('../src/auth/jwt-token-verifier');
-    const verifier = new JwtTokenVerifier(tokens, prisma as unknown as PrismaService);
-    expect(await verifier.verify(`Bearer ${pair.accessToken}`)).toEqual({ userId });
+    // 검증기는 서명·클레임까지 담당하고, pv 대조는 AuthGuard 가 스냅샷·DB 와 수행한다(§8.3)
+    const verifier = new JwtTokenVerifier(tokens);
+    const claims = await verifier.verify(`Bearer ${pair.accessToken}`);
+    expect(claims?.userId).toBe(userId);
 
     await prisma.user.update({ where: { id: userId }, data: { perm_version: { increment: 1 } } });
-    expect(await verifier.verify(`Bearer ${pair.accessToken}`)).toBeNull(); // 즉시 무효
+    const current = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    expect(current.perm_version).not.toBe(claims?.pv); // AuthGuard 가 이 불일치로 토큰을 거부한다
   });
 });

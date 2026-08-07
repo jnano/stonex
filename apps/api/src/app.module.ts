@@ -4,6 +4,9 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CONTROLLERS } from './app.controllers';
 import { PrismaService } from './prisma/prisma.service';
+import { RedisService } from './cache/redis.service';
+import { PermissionCacheService } from './cache/permission-cache.service';
+import { PermVersionService } from './cache/perm-version.service';
 import { AuditService } from './audit/audit.service';
 import { AuditInterceptor } from './audit/audit.interceptor';
 import { AuditPartitionService } from './audit/partition.service';
@@ -48,6 +51,9 @@ import {
   controllers: CONTROLLERS,
   providers: [
     PrismaService,
+    RedisService,
+    PermissionCacheService,
+    PermVersionService,
     AuditService,
     AuditPartitionService,
     SnapshotService,

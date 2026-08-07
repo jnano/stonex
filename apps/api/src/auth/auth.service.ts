@@ -100,6 +100,8 @@ export class AuthService {
         before: { roles: [], status: 'PENDING' },
       });
     });
+    // 트랜잭션 커밋 후 캐시 무효화 — pv 증가는 위 트랜잭션에 포함되어 있다(§8.3 순서)
+    await this.roleGrants.flushCache([record.user_id]);
   }
 
   // ── AUTH-2 로그인 ─────────────────────────────────────────────
