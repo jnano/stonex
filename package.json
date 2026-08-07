@@ -6,14 +6,26 @@
   "scripts": {
     "lint": "eslint . && node governance/eslint-rules/selftest.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test"
+    "test": "pnpm -r --if-present test",
+    "g4": "tsx governance/g4-seed-check.ts",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "tsx db/seeds/run.ts",
+    "db:verify": "tsx db/seeds/verify.ts"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.0",
     "@commitlint/config-conventional": "^19.8.0",
     "eslint": "^9.24.0",
+    "prisma": "^7.9.1",
+    "tsx": "^4.23.9",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.29.0"
   },
-  "packageManager": "pnpm@11.1.3"
+  "packageManager": "pnpm@11.1.3",
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "dotenv": "^17.4.2"
+  }
 }

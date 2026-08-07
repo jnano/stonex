@@ -12,4 +12,15 @@ export default tseslint.config(
       'no-restricted-syntax': ['error', ...g2RestrictedSyntax],
     },
   },
+  {
+    // 승인된 예외: 시드 검증 도구는 display_order를 "정의 vs DB 동일성 대조"로만 비교한다
+    // (보안 판정 아님 — INV-2의 취지 밖). role 비교 룰은 유지된다.
+    files: ['db/seeds/verify.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...g2RestrictedSyntax.filter((r) => !r.selector.includes('display_order')),
+      ],
+    },
+  },
 );

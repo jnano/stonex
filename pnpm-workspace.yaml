@@ -1,5 +1,9 @@
 packages:
   - apps/*
 allowBuilds:
-  # sharp(Next 이미지 최적화)의 네이티브 빌드 — 개발 단계 불필요. 운영 이미지 최적화 도입 시 true로 전환
+  # Prisma 엔진 다운로드·esbuild 바이너리 — 정상 동작에 필수
+  '@prisma/engines': true
+  esbuild: true
+  prisma: true
+  # sharp(Next 이미지 최적화) 네이티브 빌드 — 개발 단계 불필요. 도입 시 true로 전환
   sharp: false
