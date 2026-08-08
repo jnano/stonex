@@ -114,6 +114,7 @@ const ENDPOINTS: Array<{
   // WP-15 ADM-4 감사 조회 · ADM-5 시뮬레이터
   { id: 'GET /admin/audit-logs', method: 'get', path: '/api/v1/admin/audit-logs?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z' },
   { id: 'POST /admin/simulate', method: 'post', path: '/api/v1/admin/simulate', body: { subjectId: '{target}', permission: 'file.read' } },
+  { id: 'GET /admin/version', method: 'get', path: '/api/v1/admin/version' },
   // CR-1 2FA 재등록 (step-up 필요)
   { id: 'POST /auth/2fa/reenroll', method: 'post', path: '/api/v1/auth/2fa/reenroll', body: { password: 'x' } },
   { id: 'POST /auth/2fa/reenroll/confirm', method: 'post', path: '/api/v1/auth/2fa/reenroll/confirm', body: { code: '000000' } },

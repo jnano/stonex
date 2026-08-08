@@ -60,6 +60,7 @@ export default function Home() {
           <a href="/admin/audit">감사 로그</a>
           <a href="/admin/simulator">시뮬레이터</a>
           <a href="/admin/governance">거버넌스</a>
+          <a href="/admin/version">버전</a>
           <a href="/account">내 계정</a>
         </nav>
         <button onClick={logout}>로그아웃</button>

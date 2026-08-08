@@ -238,6 +238,26 @@ export interface SimulationResult {
   resource: { type: string; id: string } | null;
 }
 
+export interface ChangelogEntry {
+  version: string;
+  date: string | null;
+  sections: Array<{ kind: string; items: string[] }>;
+}
+
+export interface ComponentState {
+  label: string;
+  status: 'ok' | 'mismatch' | 'unknown';
+  detail: string;
+}
+
+export interface VersionView {
+  version: string;
+  commit: string | null;
+  startedAt: string;
+  components: ComponentState[];
+  changelog: ChangelogEntry[];
+}
+
 export const endpoints = {
   login: (email: string, password: string) =>
     api<{ accessToken: string; refreshToken: string }>('/auth/login', {
@@ -339,6 +359,9 @@ export const endpoints = {
       body: JSON.stringify({ note }),
     }),
   anomalies: (hours = 24) => api<AnomalySignal[]>(`/admin/governance/anomalies?hours=${hours}`),
+
+  // ── 버전·시스템 상태 ──
+  version: () => api<VersionView>('/admin/version'),
 
   // ── ADM-4·5 ──
   auditLogs: (params: {

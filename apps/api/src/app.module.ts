@@ -28,6 +28,7 @@ import { EmailChangeService } from './members/email-change.service';
 import { RolesService } from './admin/roles.service';
 import { AuditQueryService } from './admin/audit-query.service';
 import { PermissionSimulatorService } from './admin/simulator.service';
+import { VersionService } from './admin/version.service';
 import { FilesService } from './files/files.service';
 import { SharesService } from './files/shares.service';
 import { DomainsService } from './domains/domains.service';
@@ -106,6 +107,7 @@ import {
     RolesService,
     AuditQueryService,
     PermissionSimulatorService,
+    VersionService,
     FilesService,
     SharesService,
     DomainsService,

@@ -5,6 +5,7 @@ import { AuthedRequest } from '../authorization/guards/auth.guard';
 import { SubjectSnapshot } from '../authorization/types';
 import { AuditEntryView, AuditQueryService } from './audit-query.service';
 import { PermissionSimulatorService, SimulationResult } from './simulator.service';
+import { VersionService, VersionView } from './version.service';
 
 export class SimulateDto {
   @IsString()
@@ -38,7 +39,19 @@ export class AdminAuditController {
   constructor(
     private readonly audits: AuditQueryService,
     private readonly simulator: PermissionSimulatorService,
+    private readonly version: VersionService,
   ) {}
+
+  /**
+   * 버전·시스템 상태. 게이트는 `governance.read` 다 —
+   * 마이그레이션·시드 정합은 "지금 이 서버가 설계대로인가"를 말하는 거버넌스 정보이고,
+   * 버전 문자열은 외부에 알릴 이유가 없으므로 인증 없이 열지 않는다.
+   */
+  @RequirePermission('governance.read')
+  @Get('version')
+  async versionOverview(): Promise<VersionView> {
+    return this.version.overview();
+  }
 
   /**
    * ADM-4. **기간 필터가 필수**다 — 파티션 테이블에서 기간 없는 조회는 전 구간 스캔이 되고,
