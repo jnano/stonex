@@ -47,6 +47,7 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 | `posts` 부분 인덱스 3종 (board_created·pinned·owner) + `comments` owner 부분 인덱스 | `20260808150000_board_core_constraints` |
 | `posts.search_tsv` GENERATED 컬럼 + GIN 인덱스 (§8) | `20260808150000_board_core_constraints` |
 | `board_touch_updated_at()` 트리거 3종 (updated_at 은 DB 가 관리) | `20260808150000_board_core_constraints` |
+| board WP-B3 FK 전체 (outbox·notifications·reactions·tags) | `20260809010000_board_interaction_constraints` |
 
 ## 업로드 세션 (`file_uploads`)
 

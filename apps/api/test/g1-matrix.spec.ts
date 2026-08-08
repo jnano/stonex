@@ -140,6 +140,11 @@ const ENDPOINTS: Array<{
   { id: 'DELETE /posts/:id', method: 'delete', path: '/api/v1/posts/{rowPost}' },
   { id: 'DELETE /admin/posts/:id', method: 'delete', path: '/api/v1/admin/posts/{rowPost}' },
   { id: 'GET /posts/:id/comments', method: 'get', path: '/api/v1/posts/{post}/comments' },
+  // WP-B3 상호작용
+  { id: 'POST /posts/:id/reactions', method: 'post', path: '/api/v1/posts/{post}/reactions', body: { kind: 'like' } },
+  { id: 'GET /posts/:id/reactions', method: 'get', path: '/api/v1/posts/{post}/reactions' },
+  { id: 'GET /notifications', method: 'get', path: '/api/v1/notifications' },
+  { id: 'POST /notifications/:id/read', method: 'post', path: '/api/v1/notifications/00000000-0000-0000-0000-000000000000/read' },
   { id: 'POST /posts/:id/comments', method: 'post', path: '/api/v1/posts/{post}/comments', body: { bodyMd: 'c' } },
   { id: 'PATCH /comments/:id', method: 'patch', path: '/api/v1/comments/{rowComment}', body: { bodyMd: 'x' } },
   { id: 'DELETE /comments/:id', method: 'delete', path: '/api/v1/comments/{rowComment}' },
@@ -361,6 +366,9 @@ describe('G-1 권한 매트릭스', () => {
     await prisma.$executeRaw`DELETE FROM audit.audit_logs WHERE tenant_id = ${TENANT}::uuid`;
     await prisma.resourceGrant.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.ownerCleanupJob.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.boardNotification.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.boardOutboxEvent.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.boardReaction.deleteMany({});
     await prisma.comment.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.post.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.board.deleteMany({ where: { tenant_id: TENANT } });

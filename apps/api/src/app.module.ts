@@ -34,6 +34,9 @@ import { BoardsService } from './board/boards.service';
 import { PostsService } from './board/posts.service';
 import { CommentsService } from './board/comments.service';
 import { BoardAttachmentService } from './board/board-attachment.service';
+import { BoardEventBus } from './board/event-bus';
+import { BoardNotificationService } from './board/notification.service';
+import { BoardCapabilitiesService, BoardReactionsService, BoardTagsService } from './board/capabilities.service';
 import { AuthGuard, TOKEN_VERIFIER } from './authorization/guards/auth.guard';
 import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
@@ -184,6 +187,20 @@ import {
     PostsService,
     CommentsService,
     BoardAttachmentService,
+    BoardCapabilitiesService,
+    BoardReactionsService,
+    BoardTagsService,
+    BoardNotificationService,
+    // 이벤트 버스 — 소비자 등록도 확장 지점(여기)서 한다. 커널은 버스를 모른다(모듈 내부 장치)
+    {
+      provide: BoardEventBus,
+      inject: [PrismaService, BoardNotificationService],
+      useFactory: (prisma: PrismaService, notifications: BoardNotificationService): BoardEventBus => {
+        const bus = new BoardEventBus(prisma);
+        bus.register(notifications);
+        return bus;
+      },
+    },
     /**
      * 메일 발송 — **설정은 DB 한 곳에서 온다**(범용 배포 지원).
      * 환경 변수 폴백을 두지 않는 이유는, 두 곳에서 읽으면 "화면에는 A 인데 실제로는 B" 상태가

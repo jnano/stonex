@@ -16,6 +16,7 @@ import {
   BoardAdminController,
   BoardsController,
   CommentsController,
+  NotificationsController,
   PostsController,
 } from './board/board.controllers';
 
@@ -42,5 +43,6 @@ export const CONTROLLERS = [
   BoardsController,
   PostsController,
   CommentsController,
+  NotificationsController,
   BoardAdminController,
 ];

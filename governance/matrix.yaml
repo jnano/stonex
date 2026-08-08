@@ -552,6 +552,34 @@ matrix:
     DOMAIN_MANAGER: allow
     OPERATOR: allow
     SUPER_ADMIN: allow
+  "POST /posts/:id/reactions":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /posts/:id/reactions":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /notifications":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "POST /notifications/:id/read":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
   "POST /posts/:id/comments":
     anonymous: deny
     MEMBER: allow
