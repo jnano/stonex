@@ -3,7 +3,8 @@ import { AuthenticatedOnly, RequirePermission } from '../authorization/decorator
 import { AuthedRequest } from '../authorization/guards/auth.guard';
 import { SubjectSnapshot } from '../authorization/types';
 import { FilesService } from './files.service';
-import { CompleteUploadDto, CreateUploadUrlDto, UpdateFileDto } from './file.dto';
+import { CompleteUploadDto, CreateShareDto, CreateUploadUrlDto, UpdateFileDto } from './file.dto';
+import { SharesService, ShareSummary } from './shares.service';
 import { FileSummary } from './file.serializer';
 
 /**
@@ -17,7 +18,10 @@ import { FileSummary } from './file.serializer';
  */
 @Controller('files')
 export class FilesController {
-  constructor(private readonly files: FilesService) {}
+  constructor(
+    private readonly files: FilesService,
+    private readonly shares: SharesService,
+  ) {}
 
   @RequirePermission('file.upload')
   @Post('upload-url')
@@ -71,6 +75,45 @@ export class FilesController {
     return this.files.rename(subjectOf(req), id, body.name);
   }
 
+  // ── FILE-3~5 공유 ──
+  // 게이트는 `file.share`(owned) — 소유자만 통과한다. 관리자 경로(`file.share.all`)는
+  // owned scope 라 Guard 를 통과할 수 없으므로 별도 라우트로 분리한다(§7.3 라우트 분리).
+  @RequirePermission('file.share', { resource: { type: 'file', param: 'id' } })
+  @Post(':id/shares')
+  async createShare(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: CreateShareDto,
+  ): Promise<ShareSummary[]> {
+    return this.shares.create(subjectOf(req), id, {
+      subjectId: body.subjectId,
+      permissions: body.permissions,
+      expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+    });
+  }
+
+  @RequirePermission('file.share', { resource: { type: 'file', param: 'id' } })
+  @Get(':id/shares')
+  async listShares(@Req() req: AuthedRequest, @Param('id') id: string): Promise<ShareSummary[]> {
+    return this.shares.list(subjectOf(req), id);
+  }
+
+  /**
+   * 공유 회수 — 게이트는 `file.read`(소유자·수령자 모두 통과 가능)로 두고,
+   * "소유자 또는 생성자 또는 관리자" 관계 판정은 PolicyService 가 한다(§7.3 관계형 2차 인가).
+   * 게이트를 `file.share` 로 두면 생성자(비소유자)가 자기 공유를 회수하지 못한다.
+   */
+  @RequirePermission('file.read', { resource: { type: 'file', param: 'id' } })
+  @Delete(':id/shares/:grantId')
+  async revokeShare(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Param('grantId') grantId: string,
+  ): Promise<{ ok: true }> {
+    await this.shares.revoke(subjectOf(req), id, grantId);
+    return { ok: true };
+  }
+
   @RequirePermission('file.delete', { resource: { type: 'file', param: 'id' } })
   @Delete(':id')
   async remove(@Req() req: AuthedRequest, @Param('id') id: string): Promise<{ ok: true }> {
@@ -82,7 +125,10 @@ export class FilesController {
 /** 관리자 경로 — `.all` 권한 전용 (FILE-7, 라우트 분리 규약) */
 @Controller('admin/files')
 export class AdminFilesController {
-  constructor(private readonly files: FilesService) {}
+  constructor(
+    private readonly files: FilesService,
+    private readonly shares: SharesService,
+  ) {}
 
   @RequirePermission('file.read.all')
   @Get()
@@ -105,6 +151,21 @@ export class AdminFilesController {
   async remove(@Req() req: AuthedRequest, @Param('id') id: string): Promise<{ ok: true }> {
     await this.files.softDelete(subjectOf(req), id);
     return { ok: true };
+  }
+
+  /** 관리자 공유 생성 — 부여 가능 권한은 `file.read` 뿐이다(§4.4, 서비스가 강제) */
+  @RequirePermission('file.share.all', { resource: { type: 'file', param: 'id' } })
+  @Post(':id/shares')
+  async createShare(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: CreateShareDto,
+  ): Promise<ShareSummary[]> {
+    return this.shares.create(subjectOf(req), id, {
+      subjectId: body.subjectId,
+      permissions: body.permissions,
+      expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+    });
   }
 }
 

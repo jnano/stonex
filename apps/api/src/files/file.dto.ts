@@ -1,4 +1,15 @@
-import { IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsDateString,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 /**
  * 파일 API 입력 DTO (기획서 §10.2 입력 방향 화이트리스트).
@@ -44,4 +55,21 @@ export class UpdateFileDto {
   @IsNotEmpty()
   @MaxLength(255)
   name?: string;
+}
+
+/** 공유 생성 — `effect` 는 입력으로 받지 않는다(기획서 §4.4, ALLOW 고정) */
+export class CreateShareDto {
+  @IsString()
+  @IsNotEmpty()
+  subjectId!: string;
+
+  /** 부여할 권한 코드. 화이트리스트 밖이면 서비스가 거부한다(§5.3) */
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  permissions!: string[];
+
+  @IsOptional()
+  @IsDateString()
+  expiresAt?: string;
 }

@@ -139,6 +139,34 @@ matrix:
     DOMAIN_MANAGER: deny
     OPERATOR: deny
     SUPER_ADMIN: allow
+  "POST /files/:id/shares":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "GET /files/:id/shares":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "DELETE /files/:id/shares/:grantId":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "POST /admin/files/:id/shares":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
   "GET /admin/files":
     anonymous: deny
     MEMBER: deny

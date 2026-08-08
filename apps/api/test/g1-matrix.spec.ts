@@ -50,6 +50,10 @@ const ENDPOINTS: Array<{ id: string; method: 'get' | 'post' | 'patch' | 'put' | 
   { id: 'GET /files/:id/download-url', method: 'get', path: '/api/v1/files/{file}/download-url' },
   { id: 'PATCH /files/:id', method: 'patch', path: '/api/v1/files/{file}', body: { name: 'b.txt' } },
   { id: 'DELETE /files/:id', method: 'delete', path: '/api/v1/files/{file}' },
+  { id: 'POST /files/:id/shares', method: 'post', path: '/api/v1/files/{file}/shares', body: { subjectId: '{target}', permissions: ['file.read'] } },
+  { id: 'GET /files/:id/shares', method: 'get', path: '/api/v1/files/{file}/shares' },
+  { id: 'DELETE /files/:id/shares/:grantId', method: 'delete', path: '/api/v1/files/{file}/shares/00000000-0000-0000-0000-000000000000' },
+  { id: 'POST /admin/files/:id/shares', method: 'post', path: '/api/v1/admin/files/{file}/shares', body: { subjectId: '{target}', permissions: ['file.read'] } },
   { id: 'GET /admin/files', method: 'get', path: '/api/v1/admin/files' },
   { id: 'GET /admin/files/:id', method: 'get', path: '/api/v1/admin/files/{file}' },
   { id: 'DELETE /admin/files/:id', method: 'delete', path: '/api/v1/admin/files/{file}' },
@@ -156,7 +160,9 @@ describe('G-1 권한 매트릭스', () => {
           .replace('{memberRole}', memberRoleId)
           .replace('{file}', fileId);
         const body = JSON.parse(
-          JSON.stringify(endpoint.body ?? {}).replace('{memberRole}', memberRoleId),
+          JSON.stringify(endpoint.body ?? {})
+            .replace('{memberRole}', memberRoleId)
+            .replace('{target}', targetUserId),
         );
 
         let req = request(app.getHttpServer())[endpoint.method](url);

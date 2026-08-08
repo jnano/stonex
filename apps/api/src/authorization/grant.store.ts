@@ -53,4 +53,18 @@ export class PrismaGrantStore implements GrantStore {
     });
     return rows.map((r) => ({ resourceId: r.resource_id, effect: r.effect as 'ALLOW' | 'DENY' }));
   }
+
+  /** 특정 리소스에 걸린 Grant 전체 (공유 목록 화면용). 조회 전용 통로 */
+  async findByResource(resourceType: string, resourceId: string) {
+    return this.prisma.resourceGrant.findMany({
+      where: { resource_type: resourceType, resource_id: resourceId },
+      include: { permission: true },
+      orderBy: { granted_at: 'desc' },
+    });
+  }
+
+  /** Grant 1건 조회 (회수 전 관계 판정용). 조회 전용 통로 */
+  async findById(grantId: string) {
+    return this.prisma.resourceGrant.findUnique({ where: { id: grantId } });
+  }
 }
