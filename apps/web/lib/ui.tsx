@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 import { useSession } from './session';
+import { visibleNavItems } from './nav';
 
 /**
  * 관리자 콘솔 공통 껍데기.
@@ -31,30 +32,15 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
     );
   }
 
-  const links: Array<{ href: string; label: string; show: boolean }> = [
-    // ── board 모듈 기여 (D-2): 사용자 게시판 + 관리 링크 ──
-    { href: '/board', label: '게시판', show: can('board.read') },
-    { href: '/notifications', label: '알림', show: can('board.read') },
-    { href: '/admin/board', label: '게시판 관리', show: can('board.manage') },
-    // ── board 모듈 기여 끝 ──
-    { href: '/admin/members', label: '회원', show: can('member.read') },
-    { href: '/admin/roles', label: '역할', show: can('admin.role.read') },
-    { href: '/admin/files', label: '파일', show: true },
-    { href: '/admin/domains', label: '도메인', show: true },
-    { href: '/admin/audit', label: '감사 로그', show: can('admin.audit.read') },
-    { href: '/admin/simulator', label: '시뮬레이터', show: can('admin.role.read') },
-    { href: '/admin/governance', label: '거버넌스', show: can('governance.read') },
-    { href: '/admin/version', label: '버전', show: can('governance.read') },
-    { href: '/admin/settings', label: '설정', show: can('system.settings.manage') },
-    { href: '/account', label: '내 계정', show: true },
-  ];
+  // 목록은 lib/nav.ts 단일 출처 — 홈 화면과 같은 배열을 쓴다(§15.1)
+  const links = visibleNavItems(can);
 
   return (
     <div style={{ minHeight: '100vh' }}>
       <header style={s.header}>
         <a href="/" style={{ ...s.brand, textDecoration: 'none' }}>stonex</a>
         <nav style={s.nav}>
-          {links.filter((l) => l.show).map((l) => (
+          {links.map((l) => (
             <a key={l.href} href={l.href} style={s.navLink}>{l.label}</a>
           ))}
         </nav>

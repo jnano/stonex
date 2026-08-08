@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import { endpoints, setAccessToken } from '../lib/api';
 import { useSession } from '../lib/session';
+import { visibleNavItems } from '../lib/nav';
 
 /** 로그인 + 진입 화면. 실패 사유는 서버가 구분해 주지 않는다(§10.2) */
 export default function Home() {
-  const { me, phase, loading, refresh, logout } = useSession();
+  const { me, can, phase, loading, refresh, logout } = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -52,22 +53,11 @@ export default function Home() {
         <p>
           상태: {me.status} · 역할: {me.roles.join(', ') || '없음'} · 권한 {me.permissions.length}종
         </p>
+        {/* 링크 목록은 Shell 과 같은 단일 출처(lib/nav.ts) — 레이아웃만 다르다 */}
         <nav style={{ display: 'flex', gap: 12, margin: '16px 0', flexWrap: 'wrap' }}>
-          {/* ── board 모듈 기여 (D-2) ── */}
-          <a href="/board">게시판</a>
-          <a href="/notifications">알림</a>
-          <a href="/admin/board">게시판 관리</a>
-          {/* ── board 모듈 기여 끝 ── */}
-          <a href="/admin/members">회원</a>
-          <a href="/admin/roles">역할</a>
-          <a href="/admin/files">파일</a>
-          <a href="/admin/domains">도메인</a>
-          <a href="/admin/audit">감사 로그</a>
-          <a href="/admin/simulator">시뮬레이터</a>
-          <a href="/admin/governance">거버넌스</a>
-          <a href="/admin/version">버전</a>
-          <a href="/admin/settings">설정</a>
-          <a href="/account">내 계정</a>
+          {visibleNavItems(can).map((item) => (
+            <a key={item.href} href={item.href}>{item.label}</a>
+          ))}
         </nav>
         <button onClick={logout}>로그아웃</button>
       </main>
