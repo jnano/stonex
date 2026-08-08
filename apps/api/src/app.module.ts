@@ -24,6 +24,7 @@ import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
 import { MembersService } from './members/members.service';
 import { RolesService } from './admin/roles.service';
+import { FilesService } from './files/files.service';
 import { SuperAdminGuardService } from './members/super-admin-guard.service';
 import { AuthService } from './auth/auth.service';
 import { TokenService } from './auth/token.service';
@@ -69,13 +70,15 @@ import {
     RoleGrantService,
     ResourceGrantService,
     ResourceLoaderRegistry,
-    { provide: GRANT_STORE, useClass: PrismaGrantStore },
+    PrismaGrantStore,
+    { provide: GRANT_STORE, useExisting: PrismaGrantStore },
     AuthorizationService,
     TokenService,
     TotpService,
     AuthService,
     MembersService,
     RolesService,
+    FilesService,
     SuperAdminGuardService,
     { provide: MAILER, useClass: ConsoleMailer },
     { provide: BREACH_CHECKER, useClass: HibpBreachChecker },

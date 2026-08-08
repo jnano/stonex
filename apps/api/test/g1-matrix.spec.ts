@@ -16,6 +16,8 @@ import { PrismaClient } from '@stonex/db';
 import { TokenService } from '../src/auth/token.service';
 import { createPrisma, createTestApp, uid } from './support/test-app';
 import { MATRIX_ROWS, RowActor, createActorForRole, seedRolesForTenant } from './support/matrix-fixture';
+import { CONTROLLERS } from '../src/app.controllers';
+import { listRoutes } from '../src/authorization/startup-check';
 
 jest.setTimeout(180_000);
 
@@ -41,6 +43,36 @@ const ENDPOINTS: Array<{ id: string; method: 'get' | 'post' | 'patch' | 'put' | 
   { id: 'POST /members/:id/ban', method: 'post', path: '/api/v1/members/{target}/ban' },
   { id: 'POST /members/:id/roles', method: 'post', path: '/api/v1/members/{target}/roles', body: { roleId: '{memberRole}' } },
   { id: 'DELETE /members/:id', method: 'delete', path: '/api/v1/members/{target}' },
+  // WP-10 파일 (회원 경로 + /admin 분리 경로)
+  { id: 'POST /files/upload-url', method: 'post', path: '/api/v1/files/upload-url', body: { name: 'a.txt', mimeType: 'text/plain', sizeBytes: 10 } },
+  { id: 'GET /files', method: 'get', path: '/api/v1/files' },
+  { id: 'GET /files/:id', method: 'get', path: '/api/v1/files/{file}' },
+  { id: 'GET /files/:id/download-url', method: 'get', path: '/api/v1/files/{file}/download-url' },
+  { id: 'PATCH /files/:id', method: 'patch', path: '/api/v1/files/{file}', body: { name: 'b.txt' } },
+  { id: 'DELETE /files/:id', method: 'delete', path: '/api/v1/files/{file}' },
+  { id: 'GET /admin/files', method: 'get', path: '/api/v1/admin/files' },
+  { id: 'GET /admin/files/:id', method: 'get', path: '/api/v1/admin/files/{file}' },
+  { id: 'DELETE /admin/files/:id', method: 'delete', path: '/api/v1/admin/files/{file}' },
+  // 인증 API (전부 @Public — 비인증 행이 allow 여야 정상이며, 하나라도 deny 로 바뀌면 회귀다)
+  { id: 'POST /auth/signup', method: 'post', path: '/api/v1/auth/signup', body: { email: 'm@t.local', password: 'x', name: 'n' } },
+  { id: 'POST /auth/login', method: 'post', path: '/api/v1/auth/login', body: { email: 'm@t.local', password: 'x' } },
+  { id: 'POST /auth/refresh', method: 'post', path: '/api/v1/auth/refresh', body: { refreshToken: 'x' } },
+  { id: 'POST /auth/verify-email', method: 'post', path: '/api/v1/auth/verify-email', body: { token: 'x' } },
+  { id: 'POST /auth/password-reset/request', method: 'post', path: '/api/v1/auth/password-reset/request', body: { email: 'm@t.local' } },
+  { id: 'POST /auth/password-reset/confirm', method: 'post', path: '/api/v1/auth/password-reset/confirm', body: { token: 'x', password: 'y' } },
+  // 온보딩 (@AuthenticatedOnly — 인증만 요구, 권한 검사 대상 아님)
+  { id: 'GET /auth/onboarding/status', method: 'get', path: '/api/v1/auth/onboarding/status' },
+  { id: 'POST /auth/onboarding/password', method: 'post', path: '/api/v1/auth/onboarding/password', body: { password: 'new-password-1234' } },
+  { id: 'POST /auth/onboarding/totp', method: 'post', path: '/api/v1/auth/onboarding/totp' },
+  { id: 'POST /auth/onboarding/totp/confirm', method: 'post', path: '/api/v1/auth/onboarding/totp/confirm', body: { code: '000000' } },
+  // 회원 관리 잔여
+  { id: 'DELETE /members/:id/roles/:roleId', method: 'delete', path: '/api/v1/members/{target}/roles/{memberRole}' },
+  { id: 'POST /members/:id/unban', method: 'post', path: '/api/v1/members/{target}/unban' },
+  // 역할 관리 잔여
+  { id: 'GET /admin/roles/:id', method: 'get', path: '/api/v1/admin/roles/{memberRole}' },
+  { id: 'PATCH /admin/roles/:id', method: 'patch', path: '/api/v1/admin/roles/{memberRole}', body: { name: 'x' } },
+  { id: 'POST /admin/roles/:id/duplicate', method: 'post', path: '/api/v1/admin/roles/{memberRole}/duplicate', body: { code: 'DUP', name: 'dup' } },
+  { id: 'POST /files/complete', method: 'post', path: '/api/v1/files/complete', body: { uploadId: '00000000-0000-0000-0000-000000000000', checksum: 'c' } },
   { id: 'GET /admin/roles', method: 'get', path: '/api/v1/admin/roles' },
   { id: 'GET /admin/roles/permissions', method: 'get', path: '/api/v1/admin/roles/permissions' },
   { id: 'POST /admin/roles', method: 'post', path: '/api/v1/admin/roles', body: { code: 'X', name: 'X' } },
@@ -64,6 +96,7 @@ describe('G-1 권한 매트릭스', () => {
   let actors: RowActor[];
   let targetUserId: string;
   let memberRoleId: string;
+  let fileId: string;
 
   beforeAll(async () => {
     prisma = createPrisma();
@@ -85,12 +118,25 @@ describe('G-1 권한 매트릭스', () => {
     });
     targetUserId = target.id;
 
+    // 매트릭스의 리소스형 열이 평가할 대상. 소유자는 target(어떤 행위자도 아님)이므로
+    // 각 역할 행은 "타인 소유 파일"에 대한 판정이 된다 — 관계 축 확장(RT-17) 전까지의 기본 컨텍스트다.
+    const file = await prisma.file.create({
+      data: {
+        tenant_id: TENANT, owner_id: target.id, name: 'matrix.txt',
+        storage_key: `${TENANT}/${uid()}`, size_bytes: 1n, mime_type: 'text/plain', checksum: 'c',
+      },
+    });
+    fileId = file.id;
+
     app = await createTestApp();
   });
 
   afterAll(async () => {
     await app?.close();
     await prisma.$executeRaw`DELETE FROM audit.audit_logs WHERE tenant_id = ${TENANT}::uuid`;
+    await prisma.resourceGrant.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.fileUpload.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.file.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.userRole.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.rolePermission.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.role.deleteMany({ where: { tenant_id: TENANT } });
@@ -107,7 +153,8 @@ describe('G-1 권한 매트릭스', () => {
       for (const actor of actors) {
         const url = endpoint.path
           .replace('{target}', targetUserId)
-          .replace('{memberRole}', memberRoleId);
+          .replace('{memberRole}', memberRoleId)
+          .replace('{file}', fileId);
         const body = JSON.parse(
           JSON.stringify(endpoint.body ?? {}).replace('{memberRole}', memberRoleId),
         );
@@ -131,6 +178,15 @@ describe('G-1 권한 매트릭스', () => {
     expect(generated).toEqual(golden);
   });
 
+  it('선언된 모든 라우트가 매트릭스에 등록되어 있다 (R-7 — 검증 사각지대 방지)', () => {
+    // G-5 는 "권한 선언 누락"을 잡지만 "매트릭스 등록 누락"은 잡지 못한다.
+    // 등록하지 않은 라우트는 어떤 회귀도 검출되지 않는 사각지대가 되므로 여기서 기계적으로 막는다.
+    const declared = listRoutes(CONTROLLERS);
+    const registered = new Set(ENDPOINTS.map((e) => e.id));
+    const missing = declared.filter((r) => !registered.has(r));
+    expect(missing).toEqual([]);
+  });
+
   it('@Public 선언 목록과 비인증 행이 1:1 로 대응한다 (RT-5)', async () => {
     const golden = readGolden();
     const anonymousAllowed = Object.entries(golden)
@@ -140,7 +196,15 @@ describe('G-1 권한 매트릭스', () => {
     // 보호 API 가 실수로 @Public 이 되면 여기서 반드시 실패한다.** 목록 수정은 의도적 승인 행위다.
     // (WP-9에서 liveness/readiness 를 분리하며 2건이 추가됐다 — 의존성 상태를 로드밸런서에 알리는
     //  용도이며 인증을 요구하면 목적을 잃는다.)
-    expect(anonymousAllowed).toEqual(['GET /health', 'GET /health/live', 'GET /health/ready']);
+    expect(anonymousAllowed).toEqual([
+      // 헬스체크 — 의존성 상태를 로드밸런서에 알리는 용도라 인증을 요구하면 목적을 잃는다
+      'GET /health', 'GET /health/live', 'GET /health/ready',
+      // 인증 진입점 — 로그인 전에 호출해야 하므로 본질적으로 공개다(§6.1 AUTH-1·AUTH-4)
+      'POST /auth/signup', 'POST /auth/verify-email',
+      'POST /auth/password-reset/request', 'POST /auth/password-reset/confirm',
+    ]);
+    // 주: POST /auth/login·/auth/refresh 도 @Public 이지만 자격 증명이 없으면 401 을 반환하므로
+    // 매트릭스에는 deny 로 기록된다. 즉 이 목록은 "인증 없이 성공하는 API"의 목록이다.
   });
 });
 

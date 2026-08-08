@@ -20,6 +20,10 @@ import { RedisService } from '../src/cache/redis.service';
 import { SnapshotService } from '../src/authorization/snapshot.service';
 import { SuperAdminGuardService } from '../src/members/super-admin-guard.service';
 import { ResourceGrantService } from '../src/authorization/resource-grant.service';
+import { PrismaGrantStore } from '../src/authorization/grant.store';
+import { FilesService } from '../src/files/files.service';
+import { StorageService } from '../src/storage/storage.service';
+import { UploadSessionService } from '../src/storage/upload-session.service';
 import { MembersService } from '../src/members/members.service';
 import { SubjectSnapshot } from '../src/authorization/types';
 
@@ -65,10 +69,14 @@ describe('WP-5 회원 관리 (실 DB)', () => {
     const cache = new PermissionCacheService(redis);
     const permVersion = new PermVersionService(p, cache);
     const audit = new AuditService();
+    const grantService = new ResourceGrantService(audit);
+    const storage = new StorageService();
     snapshots = new SnapshotService(p, cache);
     members = new MembersService(
       p, audit, new RoleGrantService(audit, permVersion), permVersion, snapshots,
-      new SuperAdminGuardService(), new ResourceGrantService(audit),
+      new SuperAdminGuardService(),
+      grantService,
+      new FilesService(p, audit, grantService, storage, new UploadSessionService(p, storage), new PrismaGrantStore(p)),
     );
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'members-test' } });

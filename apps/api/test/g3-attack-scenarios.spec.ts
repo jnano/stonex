@@ -45,6 +45,10 @@ describe('G-3 공격 시나리오 회귀 (§10.1)', () => {
     await app?.close();
     await prisma.$executeRaw`DELETE FROM audit.audit_logs WHERE tenant_id = ${TENANT}::uuid`;
     await prisma.refreshToken.deleteMany({ where: { user: { tenant_id: TENANT } } });
+    // files·resource_grants 가 users 를 참조하므로 먼저 정리한다(FK RESTRICT)
+    await prisma.resourceGrant.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.fileUpload.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.file.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.userRole.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.rolePermission.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.role.deleteMany({ where: { tenant_id: TENANT } });
@@ -222,5 +226,35 @@ describe('G-3 공격 시나리오 회귀 (§10.1)', () => {
 
   // ── Phase 2 이월 (기능 도입 시 활성화) ──
   it.todo('ATK-11: 공유받은 파일 재공유로 전파 → Grant 화이트리스트에서 file.share 제외 (FILE-4, Phase 2)');
-  it.todo('ATK-12: 소프트 삭제된 리소스 접근 → 평가기 1단계 리소스 상태 게이트 (Phase 2)');
+  it('ATK-12: 소프트 삭제된 리소스 접근 → 평가기 1단계 리소스 상태 게이트', async () => {
+    // 소유자가 자기 파일을 삭제한 뒤에도 접근할 수 있으면, 삭제가 접근 통제상 무의미해진다.
+    const owner = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const file = await prisma.file.create({
+      data: {
+        tenant_id: TENANT, owner_id: owner.userId as string, name: `atk12-${uid()}.txt`,
+        storage_key: `${TENANT}/${uid()}`, size_bytes: 1n, mime_type: 'text/plain', checksum: 'c',
+      },
+    });
+
+    // 삭제 전에는 소유자로서 접근 가능
+    const before = await http()
+      .get(`/api/v1/files/${file.id}`)
+      .set('Authorization', owner.authorization as string);
+    expect(before.status).toBe(200);
+
+    const removed = await http()
+      .delete(`/api/v1/files/${file.id}`)
+      .set('Authorization', owner.authorization as string);
+    expect(removed.status).toBeLessThan(400);
+
+    // 삭제 후에는 소유자여도 차단된다(존재 은닉이므로 404)
+    for (const path of [`/api/v1/files/${file.id}`, `/api/v1/files/${file.id}/download-url`]) {
+      const res = await http().get(path).set('Authorization', owner.authorization as string);
+      expect(res.status).toBe(404);
+    }
+
+    // 목록에도 나타나지 않는다 (컬렉션 등가성 — 3·4단계만 재현하면 여기가 샌다)
+    const list = await http().get('/api/v1/files').set('Authorization', owner.authorization as string);
+    expect(list.body.items.map((i: { id: string }) => i.id)).not.toContain(file.id);
+  });
 });
