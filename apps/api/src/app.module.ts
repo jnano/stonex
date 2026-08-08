@@ -25,6 +25,7 @@ import { DominanceGuard } from './authorization/guards/dominance.guard';
 import { MembersService } from './members/members.service';
 import { RolesService } from './admin/roles.service';
 import { FilesService } from './files/files.service';
+import { SharesService } from './files/shares.service';
 import { SuperAdminGuardService } from './members/super-admin-guard.service';
 import { AuthService } from './auth/auth.service';
 import { TokenService } from './auth/token.service';
@@ -79,6 +80,7 @@ import {
     MembersService,
     RolesService,
     FilesService,
+    SharesService,
     SuperAdminGuardService,
     { provide: MAILER, useClass: ConsoleMailer },
     { provide: BREACH_CHECKER, useClass: HibpBreachChecker },

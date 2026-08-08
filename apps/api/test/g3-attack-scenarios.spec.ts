@@ -225,7 +225,44 @@ describe('G-3 공격 시나리오 회귀 (§10.1)', () => {
   });
 
   // ── Phase 2 이월 (기능 도입 시 활성화) ──
-  it.todo('ATK-11: 공유받은 파일 재공유로 전파 → Grant 화이트리스트에서 file.share 제외 (FILE-4, Phase 2)');
+  it('ATK-11: 공유받은 파일 재공유로 전파 → 화이트리스트에서 file.share 제외', async () => {
+    const owner = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const grantee = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const third = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const file = await prisma.file.create({
+      data: {
+        tenant_id: TENANT, owner_id: owner.userId as string, name: `atk11-${uid()}.txt`,
+        storage_key: `${TENANT}/${uid()}`, size_bytes: 1n, mime_type: 'text/plain', checksum: 'c',
+      },
+    });
+
+    // 소유자가 수령자에게 읽기 공유
+    const shared = await http()
+      .post(`/api/v1/files/${file.id}/shares`)
+      .set('Authorization', owner.authorization as string)
+      .send({ subjectId: grantee.userId, permissions: ['file.read'] });
+    expect(shared.status).toBeLessThan(400);
+
+    // (a) 소유자조차 file.share 를 Grant 로 넘길 수 없다 — 전파의 원천 차단
+    const propagate = await http()
+      .post(`/api/v1/files/${file.id}/shares`)
+      .set('Authorization', owner.authorization as string)
+      .send({ subjectId: grantee.userId, permissions: ['file.share'] });
+    expect(propagate.status).toBe(403);
+
+    // (b) 수령자가 제3자에게 재공유를 시도하면 공유 경로 자체가 막힌다(소유자가 아니므로 404)
+    const reshare = await http()
+      .post(`/api/v1/files/${file.id}/shares`)
+      .set('Authorization', grantee.authorization as string)
+      .send({ subjectId: third.userId, permissions: ['file.read'] });
+    expect([403, 404]).toContain(reshare.status);
+
+    // 제3자는 끝내 접근하지 못한다
+    const access = await http()
+      .get(`/api/v1/files/${file.id}`)
+      .set('Authorization', third.authorization as string);
+    expect(access.status).toBe(404);
+  });
   it('ATK-12: 소프트 삭제된 리소스 접근 → 평가기 1단계 리소스 상태 게이트', async () => {
     // 소유자가 자기 파일을 삭제한 뒤에도 접근할 수 있으면, 삭제가 접근 통제상 무의미해진다.
     const owner = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);

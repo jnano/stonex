@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@stonex/db';
 import { AuditService } from '../audit/audit.service';
+import { GRANT_WHITELIST } from '../../../../db/seeds/permissions';
 
 /**
  * 리소스 Grant 변경의 유일한 통로 (기획서 §5.3, §4.4 화이트리스트).
@@ -35,6 +36,158 @@ export class ResourceGrantService {
       });
     }
     return count;
+  }
+
+  /**
+   * Grant 생성 (기획서 §4.4·§5.3) — **리소스 Grant 를 만드는 유일한 통로**.
+   *
+   * 여기 모인 검증들은 각각 구체적인 공격 경로를 막는다.
+   *  - 화이트리스트: `{type}.share` 가 빠져 있어 **재공유·재위임 전파**가 원천 차단된다(§10.1)
+   *  - 관리자 부여 범위 제한: `file.share.all` 로 만드는 Grant 는 `file.read` 만 — 그렇지 않으면
+   *    존재하지 않는 `file.update.all` 을 리소스 단위로 환전하게 된다(WT-3)
+   *  - 자기부여 금지: 자신을 subject 로 하는 ALLOW Grant 는 만들 수 없다(§4.6-1 과 동형)
+   *  - `effect` 고정: 입력으로 받지 않는다. DENY 는 §9.6 요구가 실제 발생할 때 별도 통로로(WT-5)
+   *  - 예약 필드 차단: `subject_type`·`conditions` 를 입력으로 받지 않는다 — 미리 열어두면
+   *    §9.4 활성화 순간 과거에 심어진 행이 일제히 발효된다(WT-24)
+   *  - 행 잠금: 대상 리소스를 `FOR UPDATE` 로 잠근 뒤 검증한다. 잠금이 없으면 소유자 이전·삭제와
+   *    경합할 때 정리를 빠져나간 Grant 가 남는다(WT-10)
+   */
+  async create(
+    tx: Prisma.TransactionClient,
+    input: {
+      tenantId: string;
+      actorId: string;
+      subjectId: string;
+      resourceType: string;
+      resourceId: string;
+      permissionCodes: string[];
+      expiresAt?: Date | null;
+      /** 관리자 경로(`{type}.share.all`)로 생성하는가 — 부여 범위가 좁아진다 */
+      viaAdminPath?: boolean;
+    },
+  ): Promise<number> {
+    if (input.subjectId === input.actorId) {
+      // 공모 계정 우회까지 막지는 못하지만(§4.6-2 의 Grant 판이 없다), 가장 단순한 자가발급은 끊는다
+      throw new ForbiddenException('자신에게 Grant 를 부여할 수 없습니다.');
+    }
+
+    const allowed = GRANT_WHITELIST[input.resourceType];
+    if (!allowed) throw new BadRequestException(`Grant 를 지원하지 않는 리소스 타입입니다: ${input.resourceType}`);
+
+    const requested = [...new Set(input.permissionCodes)];
+    if (requested.length === 0) throw new BadRequestException('부여할 권한이 없습니다.');
+    const outside = requested.filter((c) => !allowed.includes(c));
+    if (outside.length > 0) {
+      throw new ForbiddenException(`Grant 로 부여할 수 없는 권한입니다: ${outside.join(', ')}`);
+    }
+    if (input.viaAdminPath) {
+      const adminAllowed = requested.filter((c) => c === `${input.resourceType}.read`);
+      if (adminAllowed.length !== requested.length) {
+        throw new ForbiddenException(
+          `관리자 경로로는 ${input.resourceType}.read 만 부여할 수 있습니다(§4.4).`,
+        );
+      }
+    }
+
+    // 대상 리소스 행을 잠그고 **잠근 뒤 상태를 재검증한다**(WT-10).
+    // 잠금만 걸고 검증을 생략하면, 삭제·이전 트랜잭션이 먼저 커밋된 경우 이 트랜잭션은
+    // 잠금을 넘겨받은 뒤 **이미 삭제된 리소스에 Grant 를 심는다** — 삭제 시 정리를 빠져나간
+    // Grant 가 영구히 남는다(테스트로 실제 재현됨).
+    const table = input.resourceType === 'file' ? 'files' : 'domains';
+    const locked = await tx.$queryRawUnsafe<Array<{ tenant_id: string; deleted_at: Date | null; status: string }>>(
+      `SELECT tenant_id, deleted_at, status FROM ${table} WHERE id = $1::uuid FOR UPDATE`,
+      input.resourceId,
+    );
+    if (locked.length === 0 || locked[0].deleted_at !== null) {
+      throw new NotFoundException(); // 존재 은닉(§10.2)
+    }
+    if (locked[0].tenant_id !== input.tenantId) {
+      // 논리 참조라 FK 가 없다 — 이 검증이 유일한 방어선이다(§5.3)
+      throw new NotFoundException();
+    }
+
+    const perms = await tx.permission.findMany({ where: { code: { in: requested } } });
+    if (perms.length !== requested.length) throw new BadRequestException('존재하지 않는 Permission 코드가 있습니다.');
+
+    let created = 0;
+    for (const perm of perms) {
+      // 동일 (주체·리소스·권한) 조합이 이미 있으면 건드리지 않는다.
+      // UNIQUE 가 effect 를 제외하므로(§5.2), UPSERT 로 짜면 기존 DENY 를 조용히 ALLOW 로
+      // 덮어써 관리자가 걸어둔 차단이 정상 공유 요청 하나에 해제된다(WT-6).
+      const existing = await tx.resourceGrant.findFirst({
+        where: {
+          subject_type: 'USER', subject_id: input.subjectId,
+          resource_type: input.resourceType, resource_id: input.resourceId,
+          permission_id: perm.id,
+        },
+        select: { id: true, effect: true },
+      });
+      if (existing) {
+        if (existing.effect === 'DENY') {
+          throw new ConflictException('해당 대상에 차단(DENY)이 설정되어 있어 공유할 수 없습니다.');
+        }
+        continue; // 이미 ALLOW — 멱등 처리
+      }
+      await tx.resourceGrant.create({
+        data: {
+          tenant_id: input.tenantId,
+          subject_type: 'USER', // 예약 필드는 입력받지 않고 고정한다(WT-24)
+          subject_id: input.subjectId,
+          resource_type: input.resourceType,
+          resource_id: input.resourceId,
+          permission_id: perm.id,
+          effect: 'ALLOW', // 입력으로 받지 않는다(WT-5)
+          granted_by: input.actorId,
+          expires_at: input.expiresAt ?? null,
+        },
+      });
+      created += 1;
+    }
+
+    if (created > 0) {
+      await this.audit.record(tx, {
+        tenantId: input.tenantId,
+        actorId: input.actorId,
+        action: 'grant.create',
+        targetType: input.resourceType,
+        targetId: input.resourceId,
+        detail: {
+          before: {},
+          after: {
+            subject: input.subjectId,
+            permissions: requested,
+            expiresAt: input.expiresAt?.toISOString() ?? null,
+            viaAdminPath: input.viaAdminPath === true,
+          },
+        },
+      });
+    }
+    return created;
+  }
+
+  /** Grant 회수 — 회수된 행 내용을 감사에 남긴다(누가 언제 무엇을 끊었는지 추적) */
+  async revoke(
+    tx: Prisma.TransactionClient,
+    input: { tenantId: string; actorId: string; grantId: string },
+  ): Promise<void> {
+    const grant = await tx.resourceGrant.findUnique({ where: { id: input.grantId } });
+    if (!grant) throw new NotFoundException();
+
+    await tx.resourceGrant.delete({ where: { id: input.grantId } });
+    await this.audit.record(tx, {
+      tenantId: input.tenantId,
+      actorId: input.actorId,
+      action: 'grant.revoke',
+      targetType: grant.resource_type,
+      targetId: grant.resource_id,
+      detail: {
+        before: {
+          subject: grant.subject_id, permissionId: grant.permission_id,
+          effect: grant.effect, grantedBy: grant.granted_by,
+        },
+        after: {},
+      },
+    });
   }
 
   /**
