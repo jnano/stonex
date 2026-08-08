@@ -1,4 +1,11 @@
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 /**
  * 도메인 API 입력 DTO (기획서 §10.2 입력 방향 화이트리스트).
@@ -27,4 +34,31 @@ export class UpdateDomainDto {
   @IsNotEmpty()
   @MaxLength(253)
   fqdn!: string;
+}
+
+/**
+ * DOM-5 운영 위임 생성.
+ * `domain.read` 는 서비스가 항상 덧붙이므로 여기 적을 필요가 없다(RT-14).
+ * 화이트리스트 밖의 코드(`domain.share`·`domain.transfer`·`domain.delete`)는
+ * `ResourceGrantService` 가 거부한다 — **재위임 전파는 그 지점에서 원천 차단된다.**
+ */
+export class CreateDelegationDto {
+  @IsString()
+  @IsNotEmpty()
+  subjectId!: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  permissions!: string[];
+
+  @IsOptional()
+  @IsDateString()
+  expiresAt?: string;
+}
+
+/** DOM-6 소유자 이전 발의 — 수령자만 지정한다. 상태·만료는 서버가 정한다 */
+export class ProposeTransferDto {
+  @IsString()
+  @IsNotEmpty()
+  toUserId!: string;
 }

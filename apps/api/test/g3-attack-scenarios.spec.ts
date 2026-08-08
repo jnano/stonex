@@ -48,6 +48,9 @@ describe('G-3 공격 시나리오 회귀 (§10.1)', () => {
     // files·resource_grants 가 users 를 참조하므로 먼저 정리한다(FK RESTRICT)
     await prisma.resourceGrant.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.fileUpload.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.domainTransfer.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.domainVerificationAttempt.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.domain.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.file.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.userRole.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.rolePermission.deleteMany({ where: { tenant_id: TENANT } });
@@ -263,6 +266,54 @@ describe('G-3 공격 시나리오 회귀 (§10.1)', () => {
       .set('Authorization', third.authorization as string);
     expect(access.status).toBe(404);
   });
+  it('ATK-13: 위임받은 도메인 재위임으로 전파 → 화이트리스트에서 domain.share 제외', async () => {
+    // ATK-11 의 도메인판(작업지시서 WP-13 DoD). 파일과 **같은 Grant 서비스**를 쓰므로
+    // 화이트리스트 일반화(`${type}.share` 제외)가 실제로 도메인에도 적용되는지 확인한다.
+    const owner = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const grantee = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const third = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const domain = await prisma.domain.create({
+      data: {
+        tenant_id: TENANT, owner_id: owner.userId as string,
+        fqdn: `atk13-${uid()}.example.com`, status: 'UNVERIFIED',
+      },
+    });
+
+    // 소유자가 수임자에게 운영 위임 (domain.read 는 서비스가 항상 포함)
+    const delegated = await http()
+      .post(`/api/v1/domains/${domain.id}/delegations`)
+      .set('Authorization', owner.authorization as string)
+      .send({ subjectId: grantee.userId, permissions: ['domain.update'] });
+    expect(delegated.status).toBeLessThan(400);
+
+    // (a) 소유자조차 domain.share 를 Grant 로 넘길 수 없다
+    const propagate = await http()
+      .post(`/api/v1/domains/${domain.id}/delegations`)
+      .set('Authorization', owner.authorization as string)
+      .send({ subjectId: grantee.userId, permissions: ['domain.share'] });
+    expect(propagate.status).toBe(403);
+
+    // (b) 수임자의 재위임 시도는 위임 경로 자체가 막힌다(소유자가 아니므로 404)
+    const redelegate = await http()
+      .post(`/api/v1/domains/${domain.id}/delegations`)
+      .set('Authorization', grantee.authorization as string)
+      .send({ subjectId: third.userId, permissions: ['domain.read'] });
+    expect([403, 404]).toContain(redelegate.status);
+
+    // (c) 소유권 이전도 위임 대상이 아니다 — 위임만으로 도메인을 가져갈 수 없다
+    const steal = await http()
+      .post(`/api/v1/domains/${domain.id}/transfers`)
+      .set('Authorization', grantee.authorization as string)
+      .send({ toUserId: grantee.userId });
+    expect(steal.status).toBe(404);
+
+    // 제3자는 끝내 접근하지 못한다
+    const access = await http()
+      .get(`/api/v1/domains/${domain.id}`)
+      .set('Authorization', third.authorization as string);
+    expect(access.status).toBe(404);
+  });
+
   it('ATK-12: 소프트 삭제된 리소스 접근 → 평가기 1단계 리소스 상태 게이트', async () => {
     // 소유자가 자기 파일을 삭제한 뒤에도 접근할 수 있으면, 삭제가 접근 통제상 무의미해진다.
     const owner = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);

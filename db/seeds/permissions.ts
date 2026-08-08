@@ -36,6 +36,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { code: 'domain.verify', scope: 'owned', module: 'core', description: '소유 도메인 소유권 검증 실행' },
   { code: 'domain.transfer', scope: 'owned', module: 'core', description: '소유 도메인 소유자 이전 발의' },
   { code: 'domain.share', scope: 'owned', module: 'core', description: '소유 도메인 운영 위임(Grant 생성/회수)' },
+  { code: 'domain.share.all', scope: 'global', module: 'core', description: '타인 도메인 위임 회수 (관리자용 — 소유자 정지 시 유출 위임을 끊는 유일한 경로)' },
   { code: 'domain.read.all', scope: 'global', module: 'core', description: '전체 도메인 조회 (관리자용)' },
   { code: 'domain.update.all', scope: 'global', module: 'core', description: '전체 도메인 수정 (관리자용)' },
   { code: 'domain.delete.all', scope: 'global', module: 'core', description: '전체 도메인 삭제 (관리자용)' },

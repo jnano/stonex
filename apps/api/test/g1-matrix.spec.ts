@@ -69,10 +69,13 @@ const ENDPOINTS: Array<{
   { id: 'DELETE /files/:id', method: 'delete', path: '/api/v1/files/{rowFile}' },
   { id: 'POST /files/:id/shares', method: 'post', path: '/api/v1/files/{file}/shares', body: { subjectId: '{target}', permissions: ['file.read'] } },
   { id: 'GET /files/:id/shares', method: 'get', path: '/api/v1/files/{file}/shares' },
-  { id: 'DELETE /files/:id/shares/:grantId', method: 'delete', path: '/api/v1/files/{file}/shares/00000000-0000-0000-0000-000000000000' },
+  { id: 'DELETE /files/:id/shares/:grantId', method: 'delete', path: '/api/v1/files/{rowFile}/shares/{rowFileGrant}' },
   { id: 'POST /admin/files/:id/shares', method: 'post', path: '/api/v1/admin/files/{file}/shares', body: { subjectId: '{target}', permissions: ['file.read'] } },
   { id: 'GET /admin/files', method: 'get', path: '/api/v1/admin/files' },
   { id: 'GET /admin/files/:id', method: 'get', path: '/api/v1/admin/files/{file}' },
+  // WP-13 에서 뚫은 관리자 공유 회수 경로 (정책 함수의 ADMIN 분기에 도달하는 유일한 라우트).
+  // **파일 삭제보다 앞**에 둔다 — 삭제된 파일에서는 404 가 되어 인가 판정이 가려진다.
+  { id: 'DELETE /admin/files/:id/shares/:grantId', method: 'delete', path: '/api/v1/admin/files/{rowFile}/shares/{rowFileGrant}' },
   { id: 'DELETE /admin/files/:id', method: 'delete', path: '/api/v1/admin/files/{rowFile}' },
   // WP-12 도메인 (회원 경로 + /admin 분리 경로)
   { id: 'POST /domains', method: 'post', path: '/api/v1/domains', body: { fqdn: 'matrix-new.example.com' } },
@@ -85,6 +88,16 @@ const ENDPOINTS: Array<{
   { id: 'GET /admin/domains/:id', method: 'get', path: '/api/v1/admin/domains/{domain}' },
   { id: 'PATCH /admin/domains/:id', method: 'patch', path: '/api/v1/admin/domains/{domain}', body: { fqdn: 'matrix-admin.example.com' } },
   { id: 'POST /admin/domains/:id/verify', method: 'post', path: '/api/v1/admin/domains/{domain}/verify' },
+  // WP-13 위임·이전
+  { id: 'POST /domains/:id/delegations', method: 'post', path: '/api/v1/domains/{domain}/delegations', body: { subjectId: '{target}', permissions: ['domain.read'] } },
+  { id: 'GET /domains/:id/delegations', method: 'get', path: '/api/v1/domains/{domain}/delegations' },
+  { id: 'DELETE /domains/:id/delegations/:grantId', method: 'delete', path: '/api/v1/domains/{rowDomain}/delegations/{rowDomainGrant}' },
+  { id: 'POST /domains/:id/transfers', method: 'post', path: '/api/v1/domains/{domain}/transfers', body: { toUserId: '{target}' } },
+  { id: 'DELETE /domains/:id/transfers/:transferId', method: 'delete', path: '/api/v1/domains/{domain}/transfers/00000000-0000-0000-0000-000000000000' },
+  { id: 'GET /admin/domains/:id/delegations', method: 'get', path: '/api/v1/admin/domains/{domain}/delegations' },
+  { id: 'DELETE /admin/domains/:id/delegations/:grantId', method: 'delete', path: '/api/v1/admin/domains/{rowDomain}/delegations/{rowDomainGrant}' },
+  { id: 'GET /transfers', method: 'get', path: '/api/v1/transfers' },
+  { id: 'POST /transfers/:id/accept', method: 'post', path: '/api/v1/transfers/00000000-0000-0000-0000-000000000000/accept' },
   { id: 'DELETE /domains/:id', method: 'delete', path: '/api/v1/domains/{rowDomain}' },
   { id: 'DELETE /admin/domains/:id', method: 'delete', path: '/api/v1/admin/domains/{rowDomain}' },
   // 인증 API (전부 @Public — 비인증 행이 allow 여야 정상이며, 하나라도 deny 로 바뀌면 회귀다)
@@ -142,10 +155,17 @@ describe('G-1 권한 매트릭스', () => {
   /** 삭제 라우트 전용 — 행마다 별도 리소스를 준다(공용 픽스처를 쓰면 실행 순서가 판정을 오염시킨다) */
   const rowFiles: Record<string, string> = {};
   const rowDomains: Record<string, string> = {};
+  // 회수 라우트가 **존재하는** Grant 를 가리켜야 게이트 판정이 드러난다.
+  // 없는 id 를 쓰면 인가를 통과한 행도 서비스에서 404 가 되어 전부 deny 로 기록된다.
+  const rowFileGrants: Record<string, string> = {};
+  const rowDomainGrants: Record<string, string> = {};
 
   beforeAll(async () => {
     prisma = createPrisma();
     const roleIds = await seedRolesForTenant(prisma, TENANT);
+    const permIds = Object.fromEntries(
+      (await prisma.permission.findMany({ select: { code: true, id: true } })).map((p) => [p.code, p.id]),
+    );
     memberRoleId = roleIds['MEMBER'];
 
     const tokens = new TokenService();
@@ -167,6 +187,15 @@ describe('G-1 권한 매트릭스', () => {
     // 같은 사용자로 두면 앞서 실행되는 `DELETE /members/:id` 가 그 회원을 삭제하면서
     // 소유 파일까지 동반 삭제하고(MEM-6·WT-17), 이후 모든 리소스형 라우트가 404 가 되어
     // **`.all` 관리자 경로의 판정이 통째로 사각지대가 된다** — WP-12에서 발견됐다.
+    // Grant 의 subject 도 관리 대상(target)과 분리한다. target 을 지우면 그 사용자를 subject 로 하는
+    // Grant 가 전부 정리되어(§5.3 cleanupForSubject), 회수 라우트가 죄다 404 가 된다.
+    const grantSubject = await prisma.user.create({
+      data: {
+        tenant_id: TENANT, email: `grantee-${uid()}@t.local`, password_hash: 'x',
+        name: 'Grant 대상', status: 'ACTIVE',
+      },
+    });
+
     const resourceOwner = await prisma.user.create({
       data: {
         tenant_id: TENANT, email: `resowner-${uid()}@t.local`, password_hash: 'x',
@@ -200,6 +229,13 @@ describe('G-1 권한 매트릭스', () => {
         },
       });
       rowFiles[row] = perRowFile.id;
+      rowFileGrants[row] = (await prisma.resourceGrant.create({
+        data: {
+          tenant_id: TENANT, subject_id: grantSubject.id, resource_type: 'file',
+          resource_id: perRowFile.id, permission_id: permIds['file.read'],
+          effect: 'ALLOW', granted_by: resourceOwner.id,
+        },
+      })).id;
       const perRow = await prisma.domain.create({
         data: {
           tenant_id: TENANT, owner_id: resourceOwner.id,
@@ -207,6 +243,13 @@ describe('G-1 권한 매트릭스', () => {
         },
       });
       rowDomains[row] = perRow.id;
+      rowDomainGrants[row] = (await prisma.resourceGrant.create({
+        data: {
+          tenant_id: TENANT, subject_id: grantSubject.id, resource_type: 'domain',
+          resource_id: perRow.id, permission_id: permIds['domain.read'],
+          effect: 'ALLOW', granted_by: resourceOwner.id,
+        },
+      })).id;
     }
 
     // 인증 API 는 §10.4 로 5회/분이라 6행을 연속 호출하면 마지막 행이 429 가 된다.
@@ -241,6 +284,8 @@ describe('G-1 권한 매트릭스', () => {
         const url = endpoint.path
           .replace('{target}', targetUserId)
           .replace('{memberRole}', memberRoleId)
+          .replace('{rowFileGrant}', rowFileGrants[actor.row])
+          .replace('{rowDomainGrant}', rowDomainGrants[actor.row])
           .replace('{rowFile}', rowFiles[actor.row])
           .replace('{file}', fileId)
           .replace('{rowDomain}', rowDomains[actor.row])

@@ -28,6 +28,8 @@ import { FilesService } from './files/files.service';
 import { SharesService } from './files/shares.service';
 import { DomainsService } from './domains/domains.service';
 import { DomainVerificationService } from './domains/verification.service';
+import { DomainDelegationsService } from './domains/delegations.service';
+import { DomainTransfersService } from './domains/transfers.service';
 import { DNS_TXT_RESOLVER, NodeDnsTxtResolver } from './domains/dns-resolver';
 import { SuperAdminGuardService } from './members/super-admin-guard.service';
 import { AuthService } from './auth/auth.service';
@@ -93,6 +95,8 @@ import {
     SharesService,
     DomainsService,
     DomainVerificationService,
+    DomainDelegationsService,
+    DomainTransfersService,
     // §13.2 미결(HTML 파일 방식 병행)이 결정되면 이 바인딩만 교체한다
     { provide: DNS_TXT_RESOLVER, useClass: NodeDnsTxtResolver },
     SuperAdminGuardService,
