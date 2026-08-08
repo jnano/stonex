@@ -10,6 +10,7 @@ import { config } from 'dotenv';
 import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { GovernanceFreezeService } from '../src/governance/freeze.service';
 import { AuditService } from '../src/audit/audit.service';
 import { PermVersionService } from '../src/cache/perm-version.service';
 import { PermissionCacheService } from '../src/cache/permission-cache.service';
@@ -48,7 +49,7 @@ describe('WP-7 관리자 콘솔 ADM-1~3 (실 DB)', () => {
     cache = new PermissionCacheService(redis);
     const permVersion = new PermVersionService(p, cache);
     snapshots = new SnapshotService(p, cache);
-    roles = new RolesService(p, new AuditService(), permVersion);
+    roles = new RolesService(p, new AuditService(), permVersion, new GovernanceFreezeService(p, new AuditService()));
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'roles-test' } });
 

@@ -100,6 +100,12 @@ const ENDPOINTS: Array<{
   { id: 'POST /transfers/:id/accept', method: 'post', path: '/api/v1/transfers/00000000-0000-0000-0000-000000000000/accept' },
   { id: 'DELETE /domains/:id', method: 'delete', path: '/api/v1/domains/{rowDomain}' },
   { id: 'DELETE /admin/domains/:id', method: 'delete', path: '/api/v1/admin/domains/{rowDomain}' },
+  // WP-14b 거버넌스 콘솔 (governance.read / governance.freeze.manage)
+  { id: 'GET /admin/governance/status', method: 'get', path: '/api/v1/admin/governance/status' },
+  { id: 'GET /admin/governance/actions', method: 'get', path: '/api/v1/admin/governance/actions' },
+  { id: 'GET /admin/governance/freezes', method: 'get', path: '/api/v1/admin/governance/freezes' },
+  { id: 'GET /admin/governance/anomalies', method: 'get', path: '/api/v1/admin/governance/anomalies' },
+  { id: 'POST /admin/governance/freezes/:id/release', method: 'post', path: '/api/v1/admin/governance/freezes/{freeze}/release', body: {} },
   // 인증 API (전부 @Public — 비인증 행이 allow 여야 정상이며, 하나라도 deny 로 바뀌면 회귀다)
   { id: 'POST /auth/signup', method: 'post', path: '/api/v1/auth/signup', body: { email: 'm@t.local', password: 'x', name: 'n' } },
   { id: 'POST /auth/login', method: 'post', path: '/api/v1/auth/login', body: { email: 'm@t.local', password: 'x' } },
@@ -159,6 +165,8 @@ describe('G-1 권한 매트릭스', () => {
   // 없는 id 를 쓰면 인가를 통과한 행도 서비스에서 404 가 되어 전부 deny 로 기록된다.
   const rowFileGrants: Record<string, string> = {};
   const rowDomainGrants: Record<string, string> = {};
+  /** 해제 라우트가 **존재하는** 동결을 가리켜야 인가 판정이 드러난다 */
+  let freezeId: string;
 
   beforeAll(async () => {
     prisma = createPrisma();
@@ -256,6 +264,15 @@ describe('G-1 권한 매트릭스', () => {
     // 매트릭스가 재는 것은 권한 판정이지 속도 제한이 아니므로, 여기서만 상향한다.
     // (createTestApp 이 AppModule 을 동적 import 하므로 이 설정이 데코레이터에 반영된다)
     process.env.AUTH_RATE_LIMIT = '1000';
+    // 동결 대상은 어떤 행위자도 아닌 target — 자기 동결은 본인이 해제할 수 없으므로,
+    // 행위자를 대상으로 두면 관계 규칙이 인가 판정을 가린다.
+    freezeId = (await prisma.governanceFreeze.create({
+      data: {
+        tenant_id: TENANT, user_id: target.id, trigger: 'AN-1',
+        reason: '매트릭스 픽스처', status: 'ACTIVE',
+      },
+    })).id;
+
     app = await createTestApp();
   });
 
@@ -264,6 +281,7 @@ describe('G-1 권한 매트릭스', () => {
     await prisma.$executeRaw`DELETE FROM audit.audit_logs WHERE tenant_id = ${TENANT}::uuid`;
     await prisma.resourceGrant.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.fileUpload.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.governanceFreeze.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.domainVerificationAttempt.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.domain.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.file.deleteMany({ where: { tenant_id: TENANT } });
@@ -284,6 +302,7 @@ describe('G-1 권한 매트릭스', () => {
         const url = endpoint.path
           .replace('{target}', targetUserId)
           .replace('{memberRole}', memberRoleId)
+          .replace('{freeze}', freezeId)
           .replace('{rowFileGrant}', rowFileGrants[actor.row])
           .replace('{rowDomainGrant}', rowDomainGrants[actor.row])
           .replace('{rowFile}', rowFiles[actor.row])

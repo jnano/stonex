@@ -16,6 +16,7 @@ import { config } from 'dotenv';
 import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { GovernanceFreezeService } from '../src/governance/freeze.service';
 import { AuditService } from '../src/audit/audit.service';
 import { ResourceGrantService } from '../src/authorization/resource-grant.service';
 import { PolicyService } from '../src/authorization/policy.service';
@@ -80,7 +81,7 @@ describe('WP-11 파일 공유 (실 DB)', () => {
     prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: TEST_URL }) });
     p = prisma as unknown as PrismaService;
     const audit = new AuditService();
-    grants = new ResourceGrantService(audit);
+    grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit));
     shares = new SharesService(p, grants, new PolicyService(), new PrismaGrantStore(p));
     const storage = new StorageService();
     files = new FilesService(p, audit, grants, storage, new UploadSessionService(p, storage), new PrismaGrantStore(p));

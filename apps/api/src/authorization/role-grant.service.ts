@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@stonex/db';
 import { AuditService } from '../audit/audit.service';
+import { GovernanceFreezeService } from '../governance/freeze.service';
 import { PermVersionService } from '../cache/perm-version.service';
 
 export interface RoleGrantInput {
@@ -28,10 +29,13 @@ export class RoleGrantService {
   constructor(
     private readonly audit: AuditService,
     private readonly permVersion: PermVersionService,
+    private readonly freeze: GovernanceFreezeService,
   ) {}
 
   /** 역할 부여 + 감사 기록 (동일 트랜잭션). 기록 실패 시 부여도 롤백된다 */
   async grant(tx: Prisma.TransactionClient, input: RoleGrantInput): Promise<void> {
+    // L-2 동결 선행 검사 (§14.4) — 역할 부여는 권한이 이동하는 가장 직접적인 통로다
+    await this.freeze.assertNotFrozen(input.actorId);
     await tx.userRole.upsert({
       where: { user_id_role_id: { user_id: input.userId, role_id: input.roleId } },
       update: {},
@@ -57,6 +61,7 @@ export class RoleGrantService {
 
   /** 역할 회수 + 감사 기록 (동일 트랜잭션) */
   async revoke(tx: Prisma.TransactionClient, input: Omit<RoleGrantInput, 'expiresAt'>): Promise<void> {
+    await this.freeze.assertNotFrozen(input.actorId);
     await tx.userRole.deleteMany({ where: { user_id: input.userId, role_id: input.roleId } });
     await this.audit.record(tx, {
       tenantId: input.tenantId,

@@ -16,6 +16,7 @@ import { config } from 'dotenv';
 import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { GovernanceFreezeService } from '../src/governance/freeze.service';
 import { AuditService } from '../src/audit/audit.service';
 import { ResourceGrantService } from '../src/authorization/resource-grant.service';
 import { AuthorizationService } from '../src/authorization/authorization.service';
@@ -84,7 +85,7 @@ describe('WP-13 도메인 위임·소유자 이전 (실 DB)', () => {
     p = prisma as unknown as PrismaService;
 
     const audit = new AuditService();
-    const grants = new ResourceGrantService(audit);
+    const grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit));
     const store = new PrismaGrantStore(p);
     const policy = new PolicyService();
     domains = new DomainsService(p, audit, grants, store);

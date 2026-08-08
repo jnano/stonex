@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@stonex/db';
 import { AuditService } from '../audit/audit.service';
+import { GovernanceFreezeService } from '../governance/freeze.service';
 import { GRANT_WHITELIST } from '../../../../db/seeds/permissions';
 
 /**
@@ -13,7 +14,10 @@ import { GRANT_WHITELIST } from '../../../../db/seeds/permissions';
  */
 @Injectable()
 export class ResourceGrantService {
-  constructor(private readonly audit: AuditService) {}
+  constructor(
+    private readonly audit: AuditService,
+    private readonly freeze: GovernanceFreezeService,
+  ) {}
 
   /**
    * 사용자 삭제 시 그 사용자가 subject 인 Grant 전체 정리 (§5.3 — 논리 참조라 FK CASCADE 불가).
@@ -66,6 +70,9 @@ export class ResourceGrantService {
       viaAdminPath?: boolean;
     },
   ): Promise<number> {
+    // L-2 동결 선행 검사 (§14.4). Guard 가 HTTP 경로를 막지만, 서비스 진입부에도 둔다 —
+    // Grant 를 만드는 통로는 여기 하나뿐이라 이 지점이 최종 방어선이다.
+    await this.freeze.assertNotFrozen(input.actorId);
     if (input.subjectId === input.actorId) {
       // 공모 계정 우회까지 막지는 못하지만(§4.6-2 의 Grant 판이 없다), 가장 단순한 자가발급은 끊는다
       throw new ForbiddenException('자신에게 Grant 를 부여할 수 없습니다.');
@@ -176,6 +183,7 @@ export class ResourceGrantService {
     tx: Prisma.TransactionClient,
     input: { tenantId: string; actorId: string | null; grantId: string; reason?: string },
   ): Promise<void> {
+    await this.freeze.assertNotFrozen(input.actorId);
     const grant = await tx.resourceGrant.findUnique({ where: { id: input.grantId } });
     if (!grant) throw new NotFoundException();
 

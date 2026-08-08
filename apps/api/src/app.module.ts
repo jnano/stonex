@@ -33,6 +33,10 @@ import { DomainTransfersService } from './domains/transfers.service';
 import { GovernancePatrolService } from './governance/patrol.service';
 import { AuditCheckpointService } from './governance/checkpoint.service';
 import { GOVERNANCE_NOTIFIER, LogGovernanceNotifier } from './governance/notifier';
+import { GovernanceFreezeService } from './governance/freeze.service';
+import { FreezeGuard } from './governance/freeze.guard';
+import { GovernanceStatusService } from './governance/governance.service';
+import { AnomalyDetectionService } from './governance/anomaly.service';
 import { DNS_TXT_RESOLVER, NodeDnsTxtResolver } from './domains/dns-resolver';
 import { SuperAdminGuardService } from './members/super-admin-guard.service';
 import { AuthService } from './auth/auth.service';
@@ -102,6 +106,9 @@ import {
     DomainTransfersService,
     GovernancePatrolService,
     AuditCheckpointService,
+    GovernanceFreezeService,
+    GovernanceStatusService,
+    AnomalyDetectionService,
     // 운영에서는 webhook·이메일 어댑터로 교체한다 (인터페이스만 지키면 순찰 코드는 그대로)
     { provide: GOVERNANCE_NOTIFIER, useClass: LogGovernanceNotifier },
     // §13.2 미결(HTML 파일 방식 병행)이 결정되면 이 바인딩만 교체한다
@@ -121,6 +128,8 @@ import {
     { provide: APP_GUARD, useClass: OnboardingGuard },
     { provide: APP_GUARD, useClass: PermissionGuard },
     { provide: APP_GUARD, useClass: DominanceGuard },
+    // [5] L-2 동결 — 권한을 옮기는 Permission 을 게이트로 쓰는 엔드포인트만 대상이다(§14.4)
+    { provide: APP_GUARD, useClass: FreezeGuard },
     // 조회 접근 로그 전용 — 권한 변경 감사는 서비스 계층(recordAudit)이 담당한다(§7.4)
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],
