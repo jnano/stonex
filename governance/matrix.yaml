@@ -181,6 +181,13 @@ matrix:
     DOMAIN_MANAGER: deny
     OPERATOR: allow
     SUPER_ADMIN: allow
+  "DELETE /admin/files/:id/shares/:grantId":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
   "DELETE /admin/files/:id":
     anonymous: deny
     MEMBER: deny
@@ -258,6 +265,69 @@ matrix:
     DOMAIN_MANAGER: allow
     OPERATOR: allow
     SUPER_ADMIN: allow
+  "POST /domains/:id/delegations":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "GET /domains/:id/delegations":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "DELETE /domains/:id/delegations/:grantId":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "POST /domains/:id/transfers":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "DELETE /domains/:id/transfers/:transferId":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "GET /admin/domains/:id/delegations":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "DELETE /admin/domains/:id/delegations/:grantId":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "GET /transfers":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "POST /transfers/:id/accept":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
   "DELETE /domains/:id":
     anonymous: deny
     MEMBER: deny

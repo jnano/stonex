@@ -153,6 +153,24 @@ export class AdminFilesController {
     return { ok: true };
   }
 
+  /**
+   * 관리자 공유 회수 — `file.share.all`(global).
+   * 이 라우트가 없으면 `canRevokeShare` 의 ADMIN 분기에 **도달할 경로가 없다**: 회원 경로의
+   * 게이트는 `file.read`(owned) 라 타인 파일에서는 Guard 를 통과하지 못하기 때문이다.
+   * 소유자 계정이 정지됐을 때 유출된 공유를 끊는 유일한 통로이며, WP-11에서 그 분기를 만든
+   * 이유가 바로 이것이다(WP-13에서 도메인 위임 회수를 만들며 누락이 드러났다).
+   */
+  @RequirePermission('file.share.all', { resource: { type: 'file', param: 'id' } })
+  @Delete(':id/shares/:grantId')
+  async revokeShare(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Param('grantId') grantId: string,
+  ): Promise<{ ok: true }> {
+    await this.shares.revoke(subjectOf(req), id, grantId);
+    return { ok: true };
+  }
+
   /** 관리자 공유 생성 — 부여 가능 권한은 `file.read` 뿐이다(§4.4, 서비스가 강제) */
   @RequirePermission('file.share.all', { resource: { type: 'file', param: 'id' } })
   @Post(':id/shares')

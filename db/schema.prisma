@@ -33,6 +33,7 @@ model Tenant {
   file_uploads     FileUpload[]
 
   domain_verification_attempts DomainVerificationAttempt[]
+  domain_transfers             DomainTransfer[]
 
   @@map("tenants")
 }
@@ -195,6 +196,7 @@ model Domain {
   owner  User   @relation(fields: [owner_id], references: [id])
 
   verification_attempts DomainVerificationAttempt[]
+  transfers             DomainTransfer[]
 
   // (tenant_id, fqdn) 유일성은 **부분 유니크 인덱스**로 강제한다(WP-12 마이그레이션의 수기 SQL).
   // 전체 유니크로 두면 소프트 삭제된 행이 슬롯을 계속 점유해 같은 FQDN 을 영원히 재등록할 수 없다.
@@ -226,6 +228,34 @@ model DomainVerificationAttempt {
   @@index([state, created_at]) // 워커 픽업
   @@index([domain_id, created_at]) // 쿨다운·일일 상한 판정
   @@map("domain_verification_attempts")
+}
+
+/**
+ * 도메인 소유자 이전 발의 (WP-13, DOM-6).
+ *
+ * **기존 테이블을 건드리지 않고 신규 테이블로 구현한다**(INV-7). 이전은 발의 + 수락의 2단계이며,
+ * 동시 발의는 `(domain_id) WHERE status='PENDING'` 부분 유니크로 1건만 허용한다(수기 SQL).
+ */
+model DomainTransfer {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id    String    @db.Uuid
+  domain_id    String    @db.Uuid
+  from_user_id String    @db.Uuid
+  to_user_id   String    @db.Uuid
+  status       String    @default("PENDING") @db.VarChar(20) // PENDING | ACCEPTED | CANCELLED | EXPIRED | INVALIDATED
+  /** 무효 종료 사유 — 수락 시 재검증에서 걸린 항목을 그대로 남긴다 */
+  reason       String?   @db.VarChar(200)
+  expires_at   DateTime  @db.Timestamptz()
+  created_at   DateTime  @default(now()) @db.Timestamptz()
+  finished_at  DateTime? @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+  domain Domain @relation(fields: [domain_id], references: [id])
+
+  @@index([to_user_id, status]) // 수령자의 받은 발의 목록
+  @@index([from_user_id, status]) // 발의자의 보낸 발의 목록
+  @@index([status, expires_at]) // 만료 스윕
+  @@map("domain_transfers")
 }
 
 // 업로드 세션 (WP-9) — 서명 URL 발급 시점의 조건을 서버가 보관한다.

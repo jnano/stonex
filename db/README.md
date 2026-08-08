@@ -31,6 +31,9 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 | `domains` 부분 인덱스 `idx_domains_owner` (WHERE deleted_at IS NULL) | `20260808014055_domain_verification` |
 | `domain_verification_attempts` 부분 유니크 `uq_domain_verification_inflight` (WHERE state IN PENDING/RUNNING) | `20260808014055_domain_verification` |
 | `domain_verification_attempts.state` CHECK (PENDING\|RUNNING\|SUCCEEDED\|FAILED) | `20260808014055_domain_verification` |
+| `domain_transfers` 부분 유니크 `uq_domain_transfers_pending` (WHERE status='PENDING') | `20260808021744_domain_transfers` |
+| `domain_transfers.status` CHECK (PENDING\|ACCEPTED\|CANCELLED\|EXPIRED\|INVALIDATED) | `20260808021744_domain_transfers` |
+| `domain_transfers` 자기이전 금지 CHECK (from_user_id <> to_user_id) | `20260808021744_domain_transfers` |
 
 ## 업로드 세션 (`file_uploads`)
 
@@ -54,6 +57,18 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 검증 시도 기록과 **잡 큐를 겸하는** 테이블이다. 실패 사유를 감사 로그에 넣지 않는 이유는,
 검증 실패의 대부분이 사용자의 DNS 설정 오류라 빈도가 높아 권한 변경 기록을 덮어 버리기 때문이다.
 `DomainVerificationService` 의 워커(10초 간격)가 `FOR UPDATE SKIP LOCKED` 로 PENDING 행을 선점한다.
+
+## 도메인 소유자 이전 (`domain_transfers`, WP-13)
+
+발의 + 수락의 2단계이며 상태는 **전적으로 이 신규 테이블에** 담는다(INV-7 — 기존 테이블 무변경).
+
+- 동시 발의는 `(domain_id) WHERE status='PENDING'` 부분 유니크로 1건만 허용한다.
+- **만료 처리는 이중이다**: 발의 시점의 지연 만료(`propose`)와 일 1회 스윕 크론.
+  한쪽만 두면, 만료된 채 PENDING 으로 남은 발의 하나가 그 도메인의 재발의를 영구히 막는다.
+- 수락 경로는 §7.3의 **인증 게이트형**이라 평가기가 실행되지 않는다.
+  검증은 `PolicyService.canAcceptTransfer` 가 도메인 행을 `FOR UPDATE` 로 잠근 뒤 재현한다.
+- 수락 시 **ALLOW Grant 는 삭제, DENY Grant 는 승계**한다 — DENY 를 함께 지우면
+  소유권 왕복만으로 제재가 해제된다.
 
 ## 감사 로그는 전용 스키마 `audit` 에 둔다 (중요)
 

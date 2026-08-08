@@ -107,6 +107,7 @@ export class SharesService {
     if (!file || file.deleted_at) throw new NotFoundException();
 
     const decision = this.policy.canRevokeShare(subject, {
+      resourceType: 'file',
       ownerId: file.owner_id,
       grantedBy: grant.granted_by,
     });

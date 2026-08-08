@@ -4,7 +4,11 @@ import { MeController } from './me/me.controller';
 import { MembersController } from './members/members.controller';
 import { AdminRolesController } from './admin/roles.controller';
 import { AdminFilesController, FilesController } from './files/files.controller';
-import { AdminDomainsController, DomainsController } from './domains/domains.controller';
+import {
+  AdminDomainsController,
+  DomainTransfersController,
+  DomainsController,
+} from './domains/domains.controller';
 
 /**
  * 전체 컨트롤러 목록 — AppModule 과 G-5 검사(bootstrap-check)가 공유하는 유일한 출처.
@@ -21,4 +25,5 @@ export const CONTROLLERS = [
   AdminFilesController,
   DomainsController,
   AdminDomainsController,
+  DomainTransfersController,
 ];
