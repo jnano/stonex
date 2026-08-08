@@ -37,7 +37,8 @@ export default function PostPage() {
   const [comments, setComments] = useState<CommentView[]>([]);
   const [reactions, setReactions] = useState<Array<{ kind: string; count: number; mine: boolean }>>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState('');           // 최상위 댓글(하단 폼)
+  const [replyDraft, setReplyDraft] = useState(''); // 답글(인라인 폼) — 서로 섞이지 않게 분리
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [editingComment, setEditingComment] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
@@ -124,6 +125,17 @@ export default function PostPage() {
     if (!reason?.trim() || !params?.postId) return;
     const id = params.postId;
     run(() => endpoints.reportPost(id, reason.trim().slice(0, 300)), '신고를 접수했습니다.');
+  };
+
+  /** 댓글 등록 — 인라인 답글과 하단 폼이 같은 경로를 쓴다(파라미터만 다르다) */
+  const submitComment = (bodyMd: string, parentId: string | null) => {
+    if (!params?.postId || !bodyMd.trim()) return;
+    const postId = params.postId;
+    run(() => endpoints
+      .createComment(postId, { bodyMd, parentId: parentId ?? undefined })
+      .then(() => {
+        if (parentId) { setReplyDraft(''); setReplyTo(null); } else { setDraft(''); }
+      }));
   };
 
   const mine = post !== null && me !== null && post.ownerId === me.id;
@@ -269,7 +281,13 @@ export default function PostPage() {
               <div style={s.row}>
                 {c.status !== 'DELETED' && (
                   <>
-                    <button onClick={() => setReplyTo(replyTo === c.id ? null : c.id)} style={linkButton('#2563eb')}>
+                    <button
+                      onClick={() => {
+                        setReplyTo(replyTo === c.id ? null : c.id);
+                        setReplyDraft('');
+                      }}
+                      style={linkButton('#2563eb')}
+                    >
                       {replyTo === c.id ? '답글 취소' : '답글'}
                     </button>
                     {REACTIONS.map(({ kind, label }) => {
@@ -325,12 +343,49 @@ export default function PostPage() {
                   </button>
                 )}
               </div>
+
+              {/* 답글 폼은 **누른 댓글 바로 아래**에 연다 — 목록 끝에 두면 어느 댓글에
+                  다는 답글인지 화면에서 알 수 없다. 들여쓰기도 자식 깊이에 맞춘다 */}
+              {replyTo === c.id && (
+                <div
+                  style={{
+                    display: 'grid', gap: 6,
+                    marginTop: 8,
+                    marginLeft: Math.min(c.depth + 1, MAX_DISPLAY_DEPTH) * 20
+                      - Math.min(c.depth, MAX_DISPLAY_DEPTH) * 20,
+                    paddingLeft: 10,
+                    borderLeft: '2px solid #dbeafe',
+                  }}
+                >
+                  <span style={{ ...s.muted, fontSize: 12 }}>↳ {c.ownerName} 님에게 답글</span>
+                  <textarea
+                    value={replyDraft}
+                    onChange={(e) => setReplyDraft(e.target.value)}
+                    placeholder="답글 (마크다운 지원)"
+                    rows={3}
+                    autoFocus
+                    style={{ ...s.input, resize: 'vertical' }}
+                  />
+                  <div style={s.row}>
+                    <button
+                      onClick={() => submitComment(replyDraft, c.id)}
+                      disabled={busy || !replyDraft.trim()}
+                      style={s.button}
+                    >
+                      답글 등록
+                    </button>
+                    <button onClick={() => { setReplyTo(null); setReplyDraft(''); }} style={s.button}>
+                      취소
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
 
+        {/* 하단 폼은 **최상위 댓글 전용** — 답글은 위의 인라인 폼이 맡는다 */}
         <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-          {replyTo && <span style={{ ...s.muted, fontSize: 12 }}>↳ 대댓글 작성 중</span>}
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -339,15 +394,7 @@ export default function PostPage() {
             style={{ ...s.input, resize: 'vertical' }}
           />
           <div style={s.row}>
-            <button
-              onClick={() => params?.postId && run(
-                () => endpoints
-                  .createComment(params.postId, { bodyMd: draft, parentId: replyTo ?? undefined })
-                  .then(() => { setDraft(''); setReplyTo(null); }),
-              )}
-              disabled={busy || !draft.trim()}
-              style={s.button}
-            >
+            <button onClick={() => submitComment(draft, null)} disabled={busy || !draft.trim()} style={s.button}>
               댓글 등록
             </button>
           </div>
