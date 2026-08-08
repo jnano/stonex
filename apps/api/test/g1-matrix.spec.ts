@@ -16,8 +16,9 @@ import { PrismaClient } from '@stonex/db';
 import { TokenService } from '../src/auth/token.service';
 import { createPrisma, createTestApp, uid } from './support/test-app';
 import { MATRIX_ROWS, RowActor, createActorForRole, seedRolesForTenant } from './support/matrix-fixture';
-import { CONTROLLERS } from '../src/app.controllers';
-import { listRoutes } from '../src/authorization/startup-check';
+// 주: `app.controllers`(→ auth.controller)는 **정적으로 import 하지 않는다.**
+// 그 모듈이 로드되는 순간 @Throttle 데코레이터가 평가되어 AUTH_RATE_LIMIT 이 고정되므로,
+// 아래 beforeAll 의 환경 변수 설정이 무효가 된다. 필요한 곳에서 동적으로 가져온다.
 
 jest.setTimeout(180_000);
 
@@ -29,10 +30,22 @@ const TENANT = '00000000-0000-0000-0000-000000009993';
  * 새 엔드포인트를 추가하면 여기에도 반드시 등록한다 — 누락은 매트릭스의 사각지대가 된다.
  * (G-5 가 "선언 누락"을 잡는다면, 이 목록은 "검증 누락"을 막는 장치다)
  */
-const ENDPOINTS: Array<{ id: string; method: 'get' | 'post' | 'patch' | 'put' | 'delete'; path: string; body?: object }> = [
+const ENDPOINTS: Array<{
+  id: string;
+  method: 'get' | 'post' | 'patch' | 'put' | 'delete';
+  path: string;
+  body?: object;
+  /**
+   * 5xx 가 그 엔드포인트의 **설계된 정상 응답**인 경우에만 지정한다(현재 readiness 하나뿐).
+   * 기본값은 "5xx = 판정 불가 → 테스트 실패"이며, 그 엄격함을 여기서 함부로 풀지 않는다.
+   */
+  serverErrorIsValid?: true;
+}> = [
   { id: 'GET /health', method: 'get', path: '/api/v1/health' },
   { id: 'GET /health/live', method: 'get', path: '/api/v1/health/live' },
-  { id: 'GET /health/ready', method: 'get', path: '/api/v1/health/ready' },
+  // readiness 는 의존성이 내려가면 503 을 반환하도록 설계돼 있다(WP-9). CI 환경에 스토리지가
+  // 없으면 503 이 정상이며, 이는 권한 판정과 무관하다 — @Public 이므로 인가는 통과한 것이다.
+  { id: 'GET /health/ready', method: 'get', path: '/api/v1/health/ready', serverErrorIsValid: true },
   { id: 'GET /me', method: 'get', path: '/api/v1/me' },
   { id: 'GET /members', method: 'get', path: '/api/v1/members' },
   { id: 'GET /members/me', method: 'get', path: '/api/v1/members/me' },
@@ -44,19 +57,36 @@ const ENDPOINTS: Array<{ id: string; method: 'get' | 'post' | 'patch' | 'put' | 
   { id: 'POST /members/:id/roles', method: 'post', path: '/api/v1/members/{target}/roles', body: { roleId: '{memberRole}' } },
   { id: 'DELETE /members/:id', method: 'delete', path: '/api/v1/members/{target}' },
   // WP-10 파일 (회원 경로 + /admin 분리 경로)
+  //
+  // 삭제는 성공하면 대상을 소멸시킨다. 공용 픽스처를 쓰면 **먼저 지운 행이 뒤 행을 404 로 만들어**
+  // 그 뒤 행들이 전부 deny 로 기록된다 — 권한이 아니라 실행 순서가 만든 값이다.
+  // 그래서 삭제 라우트만 행마다 별도 리소스({rowFile}·{rowDomain})를 대상으로 삼는다.
   { id: 'POST /files/upload-url', method: 'post', path: '/api/v1/files/upload-url', body: { name: 'a.txt', mimeType: 'text/plain', sizeBytes: 10 } },
   { id: 'GET /files', method: 'get', path: '/api/v1/files' },
   { id: 'GET /files/:id', method: 'get', path: '/api/v1/files/{file}' },
   { id: 'GET /files/:id/download-url', method: 'get', path: '/api/v1/files/{file}/download-url' },
   { id: 'PATCH /files/:id', method: 'patch', path: '/api/v1/files/{file}', body: { name: 'b.txt' } },
-  { id: 'DELETE /files/:id', method: 'delete', path: '/api/v1/files/{file}' },
+  { id: 'DELETE /files/:id', method: 'delete', path: '/api/v1/files/{rowFile}' },
   { id: 'POST /files/:id/shares', method: 'post', path: '/api/v1/files/{file}/shares', body: { subjectId: '{target}', permissions: ['file.read'] } },
   { id: 'GET /files/:id/shares', method: 'get', path: '/api/v1/files/{file}/shares' },
   { id: 'DELETE /files/:id/shares/:grantId', method: 'delete', path: '/api/v1/files/{file}/shares/00000000-0000-0000-0000-000000000000' },
   { id: 'POST /admin/files/:id/shares', method: 'post', path: '/api/v1/admin/files/{file}/shares', body: { subjectId: '{target}', permissions: ['file.read'] } },
   { id: 'GET /admin/files', method: 'get', path: '/api/v1/admin/files' },
   { id: 'GET /admin/files/:id', method: 'get', path: '/api/v1/admin/files/{file}' },
-  { id: 'DELETE /admin/files/:id', method: 'delete', path: '/api/v1/admin/files/{file}' },
+  { id: 'DELETE /admin/files/:id', method: 'delete', path: '/api/v1/admin/files/{rowFile}' },
+  // WP-12 도메인 (회원 경로 + /admin 분리 경로)
+  { id: 'POST /domains', method: 'post', path: '/api/v1/domains', body: { fqdn: 'matrix-new.example.com' } },
+  { id: 'GET /domains', method: 'get', path: '/api/v1/domains' },
+  { id: 'GET /domains/:id', method: 'get', path: '/api/v1/domains/{domain}' },
+  { id: 'GET /domains/:id/verification', method: 'get', path: '/api/v1/domains/{domain}/verification' },
+  { id: 'POST /domains/:id/verify', method: 'post', path: '/api/v1/domains/{domain}/verify' },
+  { id: 'PATCH /domains/:id', method: 'patch', path: '/api/v1/domains/{domain}', body: { fqdn: 'matrix-edit.example.com' } },
+  { id: 'GET /admin/domains', method: 'get', path: '/api/v1/admin/domains' },
+  { id: 'GET /admin/domains/:id', method: 'get', path: '/api/v1/admin/domains/{domain}' },
+  { id: 'PATCH /admin/domains/:id', method: 'patch', path: '/api/v1/admin/domains/{domain}', body: { fqdn: 'matrix-admin.example.com' } },
+  { id: 'POST /admin/domains/:id/verify', method: 'post', path: '/api/v1/admin/domains/{domain}/verify' },
+  { id: 'DELETE /domains/:id', method: 'delete', path: '/api/v1/domains/{rowDomain}' },
+  { id: 'DELETE /admin/domains/:id', method: 'delete', path: '/api/v1/admin/domains/{rowDomain}' },
   // 인증 API (전부 @Public — 비인증 행이 allow 여야 정상이며, 하나라도 deny 로 바뀌면 회귀다)
   { id: 'POST /auth/signup', method: 'post', path: '/api/v1/auth/signup', body: { email: 'm@t.local', password: 'x', name: 'n' } },
   { id: 'POST /auth/login', method: 'post', path: '/api/v1/auth/login', body: { email: 'm@t.local', password: 'x' } },
@@ -85,10 +115,17 @@ const ENDPOINTS: Array<{ id: string; method: 'get' | 'post' | 'patch' | 'put' | 
 ];
 
 /** 응답 상태 → 매트릭스 값. 권한 관점에서 '허용'인지 '거부'인지만 남긴다 */
-function verdict(status: number): 'allow' | 'deny' {
+function verdict(status: number, context: string, serverErrorIsValid = false): 'allow' | 'deny' {
   // 401/403/404 는 거부. 404 는 존재 은닉(§10.2)도 포함하므로 거부로 본다.
   // 4xx 중 400/409 는 권한은 통과하고 입력·상태 때문에 실패한 것이므로 '허용'으로 분류한다.
   if (status === 401 || status === 403 || status === 404) return 'deny';
+  // **429·5xx 는 판정이 아니다.** 이전 구현은 이것들을 'allow' 로 접어 넣었고, 그 결과
+  // 속도 제한에 걸린 행이 골든 파일에 "권한 허용"으로 굳어 있었다(WP-12에서 발견 —
+  // 인증용 throttler 가 전 라우트에 적용돼 매트릭스의 마지막 행이 항상 429 였다).
+  // 판정 불가는 조용히 통과시키지 말고 실패시킨다.
+  if (status === 429 || (status >= 500 && !serverErrorIsValid)) {
+    throw new Error(`매트릭스 판정 불가(${status}): ${context} — 권한이 아니라 속도 제한·서버 오류다.`);
+  }
   return 'allow';
 }
 
@@ -101,6 +138,10 @@ describe('G-1 권한 매트릭스', () => {
   let targetUserId: string;
   let memberRoleId: string;
   let fileId: string;
+  let domainId: string;
+  /** 삭제 라우트 전용 — 행마다 별도 리소스를 준다(공용 픽스처를 쓰면 실행 순서가 판정을 오염시킨다) */
+  const rowFiles: Record<string, string> = {};
+  const rowDomains: Record<string, string> = {};
 
   beforeAll(async () => {
     prisma = createPrisma();
@@ -122,16 +163,56 @@ describe('G-1 권한 매트릭스', () => {
     });
     targetUserId = target.id;
 
-    // 매트릭스의 리소스형 열이 평가할 대상. 소유자는 target(어떤 행위자도 아님)이므로
-    // 각 역할 행은 "타인 소유 파일"에 대한 판정이 된다 — 관계 축 확장(RT-17) 전까지의 기본 컨텍스트다.
+    // 리소스 픽스처의 소유자는 **관리 대상(target)과 분리한다.**
+    // 같은 사용자로 두면 앞서 실행되는 `DELETE /members/:id` 가 그 회원을 삭제하면서
+    // 소유 파일까지 동반 삭제하고(MEM-6·WT-17), 이후 모든 리소스형 라우트가 404 가 되어
+    // **`.all` 관리자 경로의 판정이 통째로 사각지대가 된다** — WP-12에서 발견됐다.
+    const resourceOwner = await prisma.user.create({
+      data: {
+        tenant_id: TENANT, email: `resowner-${uid()}@t.local`, password_hash: 'x',
+        name: '리소스 소유자', status: 'ACTIVE',
+      },
+    });
+
+    // 소유자는 어떤 행위자도 아니므로, 각 역할 행은 "타인 소유 리소스"에 대한 판정이 된다
+    // — 관계 축 확장(RT-17) 전까지의 기본 컨텍스트다.
     const file = await prisma.file.create({
       data: {
-        tenant_id: TENANT, owner_id: target.id, name: 'matrix.txt',
+        tenant_id: TENANT, owner_id: resourceOwner.id, name: 'matrix.txt',
         storage_key: `${TENANT}/${uid()}`, size_bytes: 1n, mime_type: 'text/plain', checksum: 'c',
       },
     });
     fileId = file.id;
 
+    // 도메인도 소유자를 target 으로 둔다 — 각 역할 행은 "타인 소유 도메인"에 대한 판정이 된다
+    const domain = await prisma.domain.create({
+      data: {
+        tenant_id: TENANT, owner_id: resourceOwner.id,
+        fqdn: `matrix-${uid()}.example.com`, status: 'UNVERIFIED',
+      },
+    });
+    domainId = domain.id;
+    for (const row of MATRIX_ROWS) {
+      const perRowFile = await prisma.file.create({
+        data: {
+          tenant_id: TENANT, owner_id: resourceOwner.id, name: `matrix-del-${row}.txt`,
+          storage_key: `${TENANT}/${uid()}`, size_bytes: 1n, mime_type: 'text/plain', checksum: 'c',
+        },
+      });
+      rowFiles[row] = perRowFile.id;
+      const perRow = await prisma.domain.create({
+        data: {
+          tenant_id: TENANT, owner_id: resourceOwner.id,
+          fqdn: `matrix-del-${row.toLowerCase()}-${uid()}.example.com`, status: 'UNVERIFIED',
+        },
+      });
+      rowDomains[row] = perRow.id;
+    }
+
+    // 인증 API 는 §10.4 로 5회/분이라 6행을 연속 호출하면 마지막 행이 429 가 된다.
+    // 매트릭스가 재는 것은 권한 판정이지 속도 제한이 아니므로, 여기서만 상향한다.
+    // (createTestApp 이 AppModule 을 동적 import 하므로 이 설정이 데코레이터에 반영된다)
+    process.env.AUTH_RATE_LIMIT = '1000';
     app = await createTestApp();
   });
 
@@ -140,6 +221,8 @@ describe('G-1 권한 매트릭스', () => {
     await prisma.$executeRaw`DELETE FROM audit.audit_logs WHERE tenant_id = ${TENANT}::uuid`;
     await prisma.resourceGrant.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.fileUpload.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.domainVerificationAttempt.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.domain.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.file.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.userRole.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.rolePermission.deleteMany({ where: { tenant_id: TENANT } });
@@ -158,7 +241,10 @@ describe('G-1 권한 매트릭스', () => {
         const url = endpoint.path
           .replace('{target}', targetUserId)
           .replace('{memberRole}', memberRoleId)
-          .replace('{file}', fileId);
+          .replace('{rowFile}', rowFiles[actor.row])
+          .replace('{file}', fileId)
+          .replace('{rowDomain}', rowDomains[actor.row])
+          .replace('{domain}', domainId);
         const body = JSON.parse(
           JSON.stringify(endpoint.body ?? {})
             .replace('{memberRole}', memberRoleId)
@@ -169,7 +255,9 @@ describe('G-1 권한 매트릭스', () => {
         if (actor.authorization) req = req.set('Authorization', actor.authorization);
         if (endpoint.body) req = req.send(body);
         const res = await req;
-        generated[endpoint.id][actor.row] = verdict(res.status);
+        generated[endpoint.id][actor.row] = verdict(
+          res.status, `${endpoint.id} / ${actor.row}`, endpoint.serverErrorIsValid,
+        );
       }
     }
 
@@ -184,9 +272,11 @@ describe('G-1 권한 매트릭스', () => {
     expect(generated).toEqual(golden);
   });
 
-  it('선언된 모든 라우트가 매트릭스에 등록되어 있다 (R-7 — 검증 사각지대 방지)', () => {
+  it('선언된 모든 라우트가 매트릭스에 등록되어 있다 (R-7 — 검증 사각지대 방지)', async () => {
     // G-5 는 "권한 선언 누락"을 잡지만 "매트릭스 등록 누락"은 잡지 못한다.
     // 등록하지 않은 라우트는 어떤 회귀도 검출되지 않는 사각지대가 되므로 여기서 기계적으로 막는다.
+    const { CONTROLLERS } = await import('../src/app.controllers');
+    const { listRoutes } = await import('../src/authorization/startup-check');
     const declared = listRoutes(CONTROLLERS);
     const registered = new Set(ENDPOINTS.map((e) => e.id));
     const missing = declared.filter((r) => !registered.has(r));

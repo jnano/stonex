@@ -96,7 +96,7 @@ matrix:
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: allow
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "POST /files/upload-url":
     anonymous: deny
     MEMBER: allow
@@ -117,49 +117,49 @@ matrix:
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "GET /files/:id/download-url":
     anonymous: deny
     MEMBER: deny
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "PATCH /files/:id":
     anonymous: deny
     MEMBER: deny
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "DELETE /files/:id":
     anonymous: deny
     MEMBER: deny
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "POST /files/:id/shares":
     anonymous: deny
     MEMBER: deny
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "GET /files/:id/shares":
     anonymous: deny
     MEMBER: deny
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "DELETE /files/:id/shares/:grantId":
     anonymous: deny
     MEMBER: deny
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "POST /admin/files/:id/shares":
     anonymous: deny
     MEMBER: deny
@@ -177,16 +177,100 @@ matrix:
   "GET /admin/files/:id":
     anonymous: deny
     MEMBER: deny
-    FILE_MANAGER: deny
+    FILE_MANAGER: allow
     DOMAIN_MANAGER: deny
-    OPERATOR: deny
+    OPERATOR: allow
     SUPER_ADMIN: allow
   "DELETE /admin/files/:id":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "POST /domains":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /domains":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /domains/:id":
     anonymous: deny
     MEMBER: deny
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
+    SUPER_ADMIN: deny
+  "GET /domains/:id/verification":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "POST /domains/:id/verify":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "PATCH /domains/:id":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "GET /admin/domains":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /admin/domains/:id":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "PATCH /admin/domains/:id":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "POST /admin/domains/:id/verify":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "DELETE /domains/:id":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "DELETE /admin/domains/:id":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
     SUPER_ADMIN: allow
   "POST /auth/signup":
     anonymous: allow
@@ -201,14 +285,14 @@ matrix:
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "POST /auth/refresh":
     anonymous: deny
     MEMBER: deny
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "POST /auth/verify-email":
     anonymous: allow
     MEMBER: allow
@@ -264,14 +348,14 @@ matrix:
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "POST /members/:id/unban":
     anonymous: deny
     MEMBER: deny
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "GET /admin/roles/:id":
     anonymous: deny
     MEMBER: deny
@@ -299,7 +383,7 @@ matrix:
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
   "GET /admin/roles":
     anonymous: deny
     MEMBER: deny
@@ -334,4 +418,4 @@ matrix:
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
     OPERATOR: deny
-    SUPER_ADMIN: allow
+    SUPER_ADMIN: deny
