@@ -4,6 +4,8 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CONTROLLERS } from './app.controllers';
 import { PrismaService } from './prisma/prisma.service';
+import { StorageService } from './storage/storage.service';
+import { UploadSessionService } from './storage/upload-session.service';
 import { RedisService } from './cache/redis.service';
 import { PermissionCacheService } from './cache/permission-cache.service';
 import { PermVersionService } from './cache/perm-version.service';
@@ -55,6 +57,8 @@ import {
   controllers: CONTROLLERS,
   providers: [
     PrismaService,
+    StorageService,
+    UploadSessionService,
     RedisService,
     PermissionCacheService,
     PermVersionService,

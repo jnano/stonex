@@ -71,10 +71,28 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      minio:
+        image: bitnami/minio:latest
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: stonex
+          MINIO_ROOT_PASSWORD: stonex_dev_minio
+          MINIO_DEFAULT_BUCKETS: stonex
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/ready || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     env:
       TEST_DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-only-secret-value-at-least-32-characters
+      STORAGE_ENDPOINT: http://localhost:9000
+      STORAGE_BUCKET: stonex
+      STORAGE_ACCESS_KEY: stonex
+      STORAGE_SECRET_KEY: stonex_dev_minio
+      STORAGE_REGION: us-east-1
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
