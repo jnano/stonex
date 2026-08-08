@@ -147,6 +147,12 @@ const ENDPOINTS: Array<{
   { id: 'GET /boards/:id/capabilities', method: 'get', path: '/api/v1/boards/{board}/capabilities' },
   { id: 'PATCH /boards/:id/capabilities', method: 'patch', path: '/api/v1/boards/{board}/capabilities', body: { key: 'reaction', enabled: true } },
   { id: 'POST /posts/:id/authors', method: 'post', path: '/api/v1/posts/{post}/authors', body: { userIds: [] } },
+  // WP-B6 운영 행위·댓글 반응
+  { id: 'POST /posts/:id/moderate', method: 'post', path: '/api/v1/posts/{rowModeratePost}/moderate', body: { pin: true } },
+  // 전용 픽스처 — rowComment 는 앞의 DELETE /comments/:id 가 이미 소모한다
+  { id: 'POST /comments/:id/reactions', method: 'post', path: '/api/v1/comments/{rowReactionComment}/reactions', body: { kind: 'like' } },
+  { id: 'POST /admin/board/posts/:id/moderate', method: 'post', path: '/api/v1/admin/board/posts/{rowModeratePost}/moderate', body: { pin: true } },
+  { id: 'GET /admin/board/posts/:id', method: 'get', path: '/api/v1/admin/board/posts/{post}' },
   // 신고는 전용 행별 픽스처 — rowPost 는 앞의 DELETE /admin/posts/:id 가 이미 소모한다
   { id: 'POST /posts/:id/report', method: 'post', path: '/api/v1/posts/{rowReportPost}/report', body: { reason: 'matrix' } },
   { id: 'POST /me/blocks/:userId', method: 'post', path: '/api/v1/me/blocks/{grantSubject}' },
@@ -231,7 +237,9 @@ describe('G-1 권한 매트릭스', () => {
   let grantSubjectId: string;
   const rowPosts: Record<string, string> = {};
   const rowReportPosts: Record<string, string> = {};
+  const rowModeratePosts: Record<string, string> = {};
   const rowComments: Record<string, string> = {};
+  const rowReactionComments: Record<string, string> = {};
 
   beforeAll(async () => {
     prisma = createPrisma();
@@ -353,6 +361,12 @@ describe('G-1 권한 매트릭스', () => {
         },
       });
       rowPosts[row] = rp.id;
+      rowModeratePosts[row] = (await prisma.post.create({
+        data: {
+          tenant_id: TENANT, board_id: board.id, owner_id: resourceOwner.id,
+          title: `매트릭스 운영용 ${row}`, body_md: 'b', body_html: '<p>b</p>',
+        },
+      })).id;
       rowReportPosts[row] = (await prisma.post.create({
         data: {
           tenant_id: TENANT, board_id: board.id, owner_id: resourceOwner.id,
@@ -362,6 +376,14 @@ describe('G-1 권한 매트릭스', () => {
       rowComments[row] = (await prisma.comment.create({
         data: {
           tenant_id: TENANT, post_id: rp.id, owner_id: resourceOwner.id,
+          path: '0001', depth: 0, body_md: 'c', body_html: '<p>c</p>',
+        },
+      })).id;
+      // 반응용 댓글은 **삭제 라우트가 손대지 않는 글**에 붙인다 — rowPost 는 앞의
+      // DELETE /posts/:id·/admin/posts/:id 가 지워 상위 역할에서 404 가 된다(픽스처 소모)
+      rowReactionComments[row] = (await prisma.comment.create({
+        data: {
+          tenant_id: TENANT, post_id: rowModeratePosts[row], owner_id: resourceOwner.id,
           path: '0001', depth: 0, body_md: 'c', body_html: '<p>c</p>',
         },
       })).id;
@@ -387,6 +409,7 @@ describe('G-1 권한 매트릭스', () => {
     await prisma.boardNotification.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.boardOutboxEvent.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.boardReaction.deleteMany({});
+    await prisma.commentReaction.deleteMany({});
     await prisma.boardReport.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.postSecretReader.deleteMany({});
     await prisma.postAuthor.deleteMany({});
@@ -427,7 +450,9 @@ describe('G-1 권한 매트릭스', () => {
           .replace('{board}', boardId)
           .replace('{post}', postId)
           .replace('{rowReportPost}', rowReportPosts[actor.row])
+          .replace('{rowModeratePost}', rowModeratePosts[actor.row])
           .replace('{rowPost}', rowPosts[actor.row])
+          .replace('{rowReactionComment}', rowReactionComments[actor.row])
           .replace('{rowComment}', rowComments[actor.row])
           .replace('{grantSubject}', grantSubjectId);
         const body = JSON.parse(

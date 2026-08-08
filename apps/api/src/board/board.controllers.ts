@@ -71,6 +71,12 @@ class ReportDto {
   @IsString() @Length(1, 300) reason!: string;
 }
 
+class ModerateDto {
+  @IsOptional() @IsBoolean() pin?: boolean;
+  @IsOptional() @IsBoolean() hide?: boolean;
+  @IsOptional() @IsUUID() moveToBoardId?: string;
+}
+
 class CoAuthorsDto {
   @IsUUID(undefined, { each: true }) userIds!: string[];
 }
@@ -279,6 +285,21 @@ export class PostsController {
     return { ok: true };
   }
 
+  /**
+   * 운영 행위 (§10.1 moderate/*) — 고정·이동·숨김/해제.
+   * 게이트는 `board.moderate`(owned scope — 해당 글의 게시판 Grant 로 판정).
+   * 삭제가 아니라 **되돌릴 수 있는 표시 변경**이며 전부 감사에 남는다.
+   */
+  @RequirePermission('board.moderate', { resource: { type: 'post', param: 'id' } })
+  @HttpPost(':id/moderate')
+  async moderate(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: ModerateDto,
+  ): Promise<PostSummary> {
+    return this.posts.moderate(subjectOf(req), id, body);
+  }
+
   /** 공동작성자 지정 (§6.5) — 원작성자만. owner_id 는 불변(R-B12) */
   @AuthenticatedOnly()
   @HttpPost(':id/authors')
@@ -358,6 +379,17 @@ export class CommentsController {
     await this.comments.softDelete(subjectOf(req), id);
     return { ok: true };
   }
+
+  /** 댓글 반응 토글 (WP-B6) — 글 반응과 같은 기능모듈(reaction) 토글을 따른다 */
+  @RequirePermission('board.read', { resource: { type: 'comment', param: 'id' } })
+  @HttpPost(':id/reactions')
+  async toggleReaction(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: ReactionDto,
+  ): Promise<{ added: boolean }> {
+    return this.comments.toggleReaction(subjectOf(req), id, body.kind);
+  }
 }
 
 /** 사용자 차단 (§6.5 user-block — **표시 필터**이지 보안 경계가 아니다. 본인 한정) */
@@ -420,6 +452,29 @@ export class BoardAdminController {
     await this.posts.loadForAdmin(subject, id);
     await this.posts.softDelete(subject, id, true);
     return { ok: true };
+  }
+
+  /**
+   * 전체 게시판 운영 행위 — `board.moderate.all` 경로 분리(§7.3 anyOf 금지).
+   * 게시판 단위 위임(board.moderate Grant)은 `/posts/:id/moderate` 를 쓴다.
+   */
+  @RequirePermission('board.moderate.all')
+  @HttpPost('board/posts/:id/moderate')
+  async moderateAll(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: ModerateDto,
+  ): Promise<PostSummary> {
+    const subject = subjectOf(req);
+    await this.posts.loadForAdmin(subject, id); // 존재·테넌트 확인
+    return this.posts.moderate(subject, id, body);
+  }
+
+  /** 숨김 글 상세 — 일반 상세는 HIDDEN 을 404 로 가리므로 운영 확인용 경로를 분리한다 */
+  @RequirePermission('board.moderate.all')
+  @Get('board/posts/:id')
+  async postForModerator(@Req() req: AuthedRequest, @Param('id') id: string): Promise<PostDetail> {
+    return this.posts.detailForModerator(subjectOf(req), id);
   }
 
   /** 신고 목록 (운영) */

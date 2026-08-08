@@ -36,7 +36,7 @@ import { CommentsService } from './board/comments.service';
 import { BoardAttachmentService } from './board/board-attachment.service';
 import { BoardEventBus } from './board/event-bus';
 import { BoardNotificationService } from './board/notification.service';
-import { BoardCapabilitiesService, BoardReactionsService, BoardTagsService } from './board/capabilities.service';
+import { BoardCapabilitiesService, BoardReactionsService, BoardTagsService, CommentReactionsService } from './board/capabilities.service';
 import { BoardSearchService } from './board/search.service';
 import { ViewCountService } from './board/view-count.service';
 import { PostPolicyService } from './board/post-policy.service';
@@ -194,6 +194,7 @@ import {
     BoardAttachmentService,
     BoardCapabilitiesService,
     BoardReactionsService,
+    CommentReactionsService,
     BoardTagsService,
     BoardNotificationService,
     BoardSearchService,

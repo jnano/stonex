@@ -7,22 +7,41 @@ import { BoardsService } from './boards.service';
 import { BoardEventBus } from './event-bus';
 import { PostPolicyService } from './post-policy.service';
 import { validateSettings } from './presets';
+import { CommentReactionsService } from './capabilities.service';
 import { COMMENT_TOMBSTONE, extractMentions, renderBodyHtml } from './render';
+
+export interface CommentReactionView {
+  kind: string;
+  count: number;
+  mine: boolean;
+}
 
 export interface CommentView {
   id: string;
   postId: string;
   ownerId: string;
+  /** 작성자 표시명 — 이메일은 싣지 않는다(§10.2) */
+  ownerName: string;
   parentId: string | null;
   depth: number;
   bodyHtml: string;
+  /** 수정 화면용 원본 — 본인 댓글에만 실린다(남의 원본을 줄 이유가 없다) */
+  bodyMd?: string;
   status: string;
   createdAt: string;
+  reactions: CommentReactionView[];
 }
 
-const toView = (c: Comment): CommentView => ({
-  id: c.id, postId: c.post_id, ownerId: c.owner_id, parentId: c.parent_id,
-  depth: c.depth, bodyHtml: c.body_html, status: c.status, createdAt: c.created_at.toISOString(),
+const toView = (
+  c: Comment,
+  extra: { ownerName?: string; reactions?: CommentReactionView[]; viewerId?: string } = {},
+): CommentView => ({
+  id: c.id, postId: c.post_id, ownerId: c.owner_id, ownerName: extra.ownerName ?? '',
+  parentId: c.parent_id, depth: c.depth, bodyHtml: c.body_html,
+  // 본인 댓글만 원본을 준다 — 수정 화면이 필요로 하는 최소 노출
+  bodyMd: extra.viewerId === c.owner_id ? c.body_md : undefined,
+  status: c.status, createdAt: c.created_at.toISOString(),
+  reactions: extra.reactions ?? [],
 });
 
 /** path 세그먼트 폭 — '0001.0007.0003' (§9.1). 4자리 = 형제 9,999개 상한 */
@@ -42,6 +61,7 @@ export class CommentsService {
     private readonly boards: BoardsService,
     private readonly bus: BoardEventBus,
     private readonly policy: PostPolicyService,
+    private readonly reactions: CommentReactionsService,
   ) {}
 
   /** 게시글의 댓글 전체 — path 사전순 = 트리 전위순회(§9). 페이징은 WP-B3 */
@@ -57,7 +77,36 @@ export class CommentsService {
       },
       orderBy: { path: 'asc' },
     });
-    return rows.map(toView);
+    // 이름·반응을 한 번에 모아 붙인다 — 댓글마다 조회하면 N+1 이 된다
+    const [names, reactionsByComment] = await Promise.all([
+      this.ownerNames(rows.map((r) => r.owner_id)),
+      this.reactions.summaryForPost(post.id, subject.id),
+    ]);
+    return rows.map((c) =>
+      toView(c, {
+        ownerName: names.get(c.owner_id) ?? '(알 수 없음)',
+        reactions: reactionsByComment.get(c.id) ?? [],
+        viewerId: subject.id,
+      }),
+    );
+  }
+
+  /** 작성자 표시명 일괄 조회 (N+1 방지) */
+  private async ownerNames(ownerIds: string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(ownerIds)];
+    if (unique.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: unique } }, select: { id: true, name: true },
+    });
+    return new Map(users.map((u) => [u.id, u.name]));
+  }
+
+  /** 댓글 반응 토글 — 게시판의 reaction 기능이 꺼져 있으면 404 */
+  async toggleReaction(subject: SubjectSnapshot, commentId: string, kind: string): Promise<{ added: boolean }> {
+    const comment = await this.prisma.comment.findUnique({ where: { id: commentId } });
+    if (!comment || comment.deleted_at) throw new NotFoundException();
+    const post = await this.loadPost(subject, comment.post_id); // 2단 게이트 재사용
+    return this.reactions.toggle(subject, comment, post.board_id, kind);
   }
 
   private async deletedOwnerIds(postId: string): Promise<string[]> {
@@ -128,7 +177,8 @@ export class CommentsService {
       });
       return created;
     });
-    return toView(comment);
+    const names = await this.ownerNames([comment.owner_id]);
+    return toView(comment, { ownerName: names.get(comment.owner_id) ?? '', viewerId: subject.id });
   }
 
   async update(subject: SubjectSnapshot, commentId: string, bodyMd: string): Promise<CommentView> {
@@ -147,7 +197,8 @@ export class CommentsService {
       });
       return next;
     });
-    return toView(updated);
+    const names = await this.ownerNames([updated.owner_id]);
+    return toView(updated, { ownerName: names.get(updated.owner_id) ?? '', viewerId: subject.id });
   }
 
   async softDelete(subject: SubjectSnapshot, commentId: string, viaAdmin = false): Promise<void> {

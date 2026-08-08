@@ -92,7 +92,8 @@ export default function BoardPostsPage() {
               {post.isSecret && <span style={{ marginLeft: 6 }}>🔒</span>}
             </div>
             <span style={{ ...s.muted, fontSize: 12 }}>
-              댓글 {post.commentCount} · 조회 {post.viewCount} · {new Date(post.createdAt).toLocaleDateString('ko-KR')}
+              {post.ownerName} · 댓글 {post.commentCount} · 조회 {post.viewCount} ·{' '}
+              {new Date(post.createdAt).toLocaleDateString('ko-KR')}
             </span>
           </div>
         </Card>

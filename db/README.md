@@ -50,6 +50,7 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 | board WP-B3 FK 전체 (outbox·notifications·reactions·tags) | `20260809010000_board_interaction_constraints` |
 | pg_trgm 확장 + posts trgm GIN 2종 + view_count (GD-3 어댑터 — pg_bigm 은 환경 부재로 pg_trgm 채택) | `20260809020000_board_search` |
 | board WP-B5 FK·CHECK (secret_readers·authors·user_blocks·reports) | `20260809040000_board_governance_constraints` |
+| `comment_reactions` FK 2종 (댓글 반응 — WP-B6) | `20260809050000_comment_reactions` |
 
 ## 업로드 세션 (`file_uploads`)
 

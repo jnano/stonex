@@ -485,6 +485,8 @@ model Comment {
   updated_at DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
   deleted_at DateTime? @db.Timestamptz()
 
+  reactions CommentReaction[]
+
   @@index([post_id, path])
   @@map("comments")
 }
@@ -602,6 +604,25 @@ model BoardReport {
   @@unique([post_id, reporter_id])
   @@index([tenant_id, status, created_at])
   @@map("board_reports")
+}
+
+
+// ── board 모듈 기여: WP-B6 (D-2) ──
+
+// 댓글 반응 — 글 반응(board_reactions)과 **별도 테이블**. 기존 테이블에 target_type 을
+// 더하는 대신 새 표를 쓴다(INV-7 정신 — 기존 구조 무변경). 반응 로직은 대상만 다른
+// 얇은 계층이라 중복 비용이 작다.
+model CommentReaction {
+  comment_id String   @db.Uuid
+  user_id    String   @db.Uuid
+  kind       String   @db.VarChar(24)
+  created_at DateTime @default(dbgenerated("now()")) @db.Timestamptz()
+
+  // 모듈 내부 관계는 선언한다 — 커널 모델(User)만 관계를 걸지 않는다(OQ-2)
+  comment Comment @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+
+  @@id([comment_id, user_id, kind])
+  @@map("comment_reactions")
 }
 
 // ═══ board 모듈 기여 끝 ═══

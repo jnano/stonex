@@ -97,6 +97,22 @@ export class StorageService {
     return getSignedUrl(client, command, { expiresIn: DOWNLOAD_URL_TTL_SECONDS });
   }
 
+  /**
+   * 브라우저에 **그대로 띄우는** URL (inline) — 게시판 본문의 이미지처럼 다운로드가
+   * 아니라 표시가 목적일 때. 다운로드 URL 과 달리 Content-Disposition 을 attachment 로
+   * 강제하지 않는다. 서명 URL 이므로 만료가 있고 storage_key 는 노출되지 않는다.
+   */
+  async createInlineUrl(params: { storageKey: string; contentType: string }): Promise<string> {
+    const { client, bucket } = await this.resolve();
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: params.storageKey,
+      ResponseContentDisposition: 'inline',
+      ResponseContentType: params.contentType,
+    });
+    return getSignedUrl(client, command, { expiresIn: DOWNLOAD_URL_TTL_SECONDS });
+  }
+
   /** 업로드 완료 검증용 — 실제 오브젝트의 크기·타입·체크섬 확인 */
   async headObject(storageKey: string): Promise<{ size: number; contentType?: string } | null> {
     try {
