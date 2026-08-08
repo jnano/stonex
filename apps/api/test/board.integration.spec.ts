@@ -235,6 +235,48 @@ describe('게시판 코어 (WP-B1, 실 DB)', () => {
     expect(after.find((c) => c.id === child.id)).toBeUndefined();
   });
 
+  it('tombstone 은 자식이 모두 사라지면 함께 정리된다 — 조상까지 연쇄 (§4.1)', async () => {
+    const writer = snapshot(memberId, MEMBER_CODES);
+    const board = await makeBoard('PUBLIC');
+    const post = await posts.create(writer, board.id, { title: 't', bodyMd: 'b' });
+
+    // 3대 트리: 조부 → 부 → 자
+    const grand = await comments.create(writer, post.id, { bodyMd: '조부' });
+    const parent = await comments.create(writer, post.id, { bodyMd: '부', parentId: grand.id });
+    const child = await comments.create(writer, post.id, { bodyMd: '자', parentId: parent.id });
+
+    // 위에서부터 지운다 — 자식이 있으므로 둘 다 tombstone 으로 남는다
+    await comments.softDelete(writer, grand.id);
+    await comments.softDelete(writer, parent.id);
+    const midway = await comments.list(writer, post.id);
+    expect(midway.map((c) => c.id).sort()).toEqual([grand.id, parent.id, child.id].sort());
+    expect(midway.find((c) => c.id === grand.id)?.bodyHtml).toBe(COMMENT_TOMBSTONE);
+
+    // 마지막 자식을 지우면 붙들 대상이 없어진 tombstone 이 **조상까지 연쇄로** 사라진다
+    await comments.softDelete(writer, child.id);
+    expect(await comments.list(writer, post.id)).toEqual([]);
+    // 행 자체는 남는다(감사·경로 추적) — 목록에서만 보이지 않는다
+    expect(await prisma.comment.count({ where: { post_id: post.id } })).toBe(3);
+  });
+
+  it('자식이 tombstone 뿐인 부모를 지워도 트리가 깨지지 않는다 (보이는 자식 기준 판정)', async () => {
+    const writer = snapshot(memberId, MEMBER_CODES);
+    const board = await makeBoard('PUBLIC');
+    const post = await posts.create(writer, board.id, { title: 't', bodyMd: 'b' });
+
+    const parent = await comments.create(writer, post.id, { bodyMd: '부' });
+    const child = await comments.create(writer, post.id, { bodyMd: '자', parentId: parent.id });
+    const grandchild = await comments.create(writer, post.id, { bodyMd: '손', parentId: child.id });
+
+    await comments.softDelete(writer, child.id); // 손자가 있으므로 tombstone
+    // 부모의 유일한 자식은 tombstone 이다 — 살아 있는 자식만 셌다면 부모가 완전 삭제돼
+    // 손자가 부모 없이 떠 버린다. 보이는 자식(=tombstone 포함) 기준이라 부모도 tombstone 이다
+    await comments.softDelete(writer, parent.id);
+    const rows = await comments.list(writer, post.id);
+    expect(rows.map((c) => c.id).sort()).toEqual([parent.id, child.id, grandchild.id].sort());
+    expect(rows.find((c) => c.id === parent.id)?.bodyHtml).toBe(COMMENT_TOMBSTONE);
+  });
+
   it('첨부는 본인 소유 파일만 링크할 수 있다 (R-B7 — 타인 파일 노출 차단)', async () => {
     const writer = snapshot(memberId, MEMBER_CODES);
     const board = await makeBoard('PUBLIC');

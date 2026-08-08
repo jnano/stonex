@@ -201,14 +201,59 @@ export class CommentsService {
     return toView(updated, { ownerName: names.get(updated.owner_id) ?? '', viewerId: subject.id });
   }
 
+  /**
+   * 화면에 남는 자식 수 — **tombstone 도 자식으로 센다.**
+   *
+   * 목록 필터(§list)가 tombstone 을 보여주므로, 살아 있는 자식만 세면 "자식이
+   * tombstone 뿐인 부모"를 완전 삭제해 자식이 부모 없이 떠 버린다. 화면에 보이는
+   * 것과 같은 기준으로 세야 트리가 깨지지 않는다.
+   */
+  private async visibleChildCount(tx: Prisma.TransactionClient, parentId: string): Promise<number> {
+    return tx.comment.count({
+      where: {
+        parent_id: parentId,
+        OR: [{ deleted_at: null }, { status: 'DELETED', body_html: COMMENT_TOMBSTONE }],
+      },
+    });
+  }
+
+  /**
+   * 역할을 다한 tombstone 정리 (조상 방향).
+   *
+   * tombstone 은 **자식을 붙들어 두기 위해서만** 존재한다 — 마지막 자식이 사라지면
+   * 남을 이유가 없다. 부모가 tombstone 이고 보이는 자식이 0이 되면 완전 삭제하고,
+   * 그 부모의 부모도 같은 조건이면 계속 올라간다(연쇄 정리).
+   *
+   * comment_count 는 tombstone 을 만들 때 이미 감소시켰으므로 여기서 또 빼지 않는다
+   * (BRI-2 의 재계산 기준도 deleted_at IS NULL 이라 정합이 유지된다).
+   */
+  private async purgeOrphanTombstones(
+    tx: Prisma.TransactionClient,
+    startParentId: string | null,
+  ): Promise<string[]> {
+    const purged: string[] = [];
+    let cursor = startParentId;
+    let guard = 0;
+    while (cursor && guard < 100) {
+      const parent: Comment | null = await tx.comment.findUnique({ where: { id: cursor } });
+      // tombstone 이 아니면(살아 있거나 이미 완전 삭제) 멈춘다
+      if (!parent || parent.body_html !== COMMENT_TOMBSTONE || parent.deleted_at === null) break;
+      if ((await this.visibleChildCount(tx, parent.id)) > 0) break;
+      // 목록 필터에 걸리지 않게 tombstone 표식을 지운다 — 행은 남기되 보이지 않는다
+      await tx.comment.update({ where: { id: parent.id }, data: { body_html: '', body_md: '' } });
+      purged.push(parent.id);
+      cursor = parent.parent_id;
+      guard += 1;
+    }
+    return purged;
+  }
+
   async softDelete(subject: SubjectSnapshot, commentId: string, viaAdmin = false): Promise<void> {
     const comment = await this.prisma.comment.findUnique({ where: { id: commentId } });
     if (!comment || comment.deleted_at) throw new NotFoundException();
 
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const children = await tx.comment.count({
-        where: { parent_id: commentId, deleted_at: null },
-      });
+      const children = await this.visibleChildCount(tx, commentId);
       // 자식이 있으면 트리 구조 보존을 위해 tombstone(§4.1, BINV-4) — 본문만 지운다
       await tx.comment.update({
         where: { id: commentId },
@@ -222,11 +267,16 @@ export class CommentsService {
         where: { id: comment.post_id },
         data: { comment_count: { decrement: 1 } },
       });
+      // 이 댓글이 사라지면서 부모 tombstone 이 붙들 자식을 잃었을 수 있다 — 위로 정리
+      const purged = children > 0 ? [] : await this.purgeOrphanTombstones(tx, comment.parent_id);
       await this.audit.record(tx, {
         tenantId: subject.tenantId, actorId: subject.id,
         action: viaAdmin ? 'comment.delete.admin' : 'comment.delete',
         targetType: 'comment', targetId: commentId,
-        detail: { before: { ownerId: comment.owner_id }, after: { tombstone: children > 0 } },
+        detail: {
+          before: { ownerId: comment.owner_id },
+          after: { tombstone: children > 0, purgedTombstones: purged.length },
+        },
       });
     });
   }
