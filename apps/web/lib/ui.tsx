@@ -40,6 +40,7 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
     { href: '/admin/simulator', label: '시뮬레이터', show: can('admin.role.read') },
     { href: '/admin/governance', label: '거버넌스', show: can('governance.read') },
     { href: '/admin/version', label: '버전', show: can('governance.read') },
+    { href: '/admin/settings', label: '설정', show: can('system.settings.manage') },
     { href: '/account', label: '내 계정', show: true },
   ];
 

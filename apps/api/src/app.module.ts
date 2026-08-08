@@ -50,7 +50,8 @@ import { TokenService } from './auth/token.service';
 import { TotpService } from './auth/totp.service';
 import { JwtTokenVerifier } from './auth/jwt-token-verifier';
 import { OnboardingGuard } from './auth/guards/onboarding.guard';
-import { ConsoleMailer, MAILER, SmtpMailer } from './auth/mailer';
+import { ConfiguredMailer, MAILER } from './auth/mailer';
+import { SettingsService } from './settings/settings.service';
 import {
   BREACH_CHECKER,
   BreachChecker,
@@ -126,12 +127,13 @@ import {
     // §13.2 미결(HTML 파일 방식 병행)이 결정되면 이 바인딩만 교체한다
     { provide: DNS_TXT_RESOLVER, useClass: NodeDnsTxtResolver },
     SuperAdminGuardService,
+    SettingsService,
     /**
-     * 메일 발송 수단 (§13.2 결정).
-     * 기본은 로그 어댑터다 — 설정 없이 뜬 서버가 조용히 메일을 못 보내는 것보다,
-     * "발송하지 않는다"가 명시적인 편이 낫다. `MAIL_TRANSPORT=smtp` 로 실제 발송을 켠다.
+     * 메일 발송 — **설정은 DB 한 곳에서 온다**(범용 배포 지원).
+     * 환경 변수 폴백을 두지 않는 이유는, 두 곳에서 읽으면 "화면에는 A 인데 실제로는 B" 상태가
+     * 생기고 그걸 추적하기가 매우 어렵기 때문이다.
      */
-    { provide: MAILER, useClass: process.env.MAIL_TRANSPORT === 'smtp' ? SmtpMailer : ConsoleMailer },
+    { provide: MAILER, useClass: ConfiguredMailer },
     { provide: BREACH_CHECKER, useClass: HibpBreachChecker },
     {
       provide: PasswordService,

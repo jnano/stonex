@@ -16,6 +16,7 @@ import { config } from 'dotenv';
 import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { SettingsService } from '../src/settings/settings.service';
 import { GovernanceFreezeService } from '../src/governance/freeze.service';
 import { AuditService } from '../src/audit/audit.service';
 import { ResourceGrantService } from '../src/authorization/resource-grant.service';
@@ -83,7 +84,7 @@ describe('WP-11 파일 공유 (실 DB)', () => {
     const audit = new AuditService();
     grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit));
     shares = new SharesService(p, grants, new PolicyService(), new PrismaGrantStore(p));
-    const storage = new StorageService();
+    const storage = new StorageService(new SettingsService(p, new AuditService()));
     files = new FilesService(p, audit, grants, storage, new UploadSessionService(p, storage), new PrismaGrantStore(p));
     authz = new AuthorizationService(new PrismaGrantStore(p));
 

@@ -270,6 +270,32 @@ export interface VersionView {
   changelog: ChangelogEntry[];
 }
 
+export interface SettingFieldView {
+  key: string;
+  label: string;
+  kind: string;
+  hint?: string;
+  required?: boolean;
+  options?: Array<{ value: string; label: string }>;
+  placeholder?: string;
+  /** 평문 항목의 현재 값. **비밀 항목은 항상 null** — 서버가 내려주지 않는다 */
+  value: string | null;
+  configured: boolean;
+}
+
+export interface CategoryView {
+  category: string;
+  label: string;
+  description: string;
+  testable: boolean;
+  fields: SettingFieldView[];
+}
+
+export interface TestResult {
+  ok: boolean;
+  message: string;
+}
+
 export const endpoints = {
   login: (email: string, password: string) =>
     api<{ accessToken: string; refreshToken: string }>('/auth/login', {
@@ -371,6 +397,17 @@ export const endpoints = {
       body: JSON.stringify({ note }),
     }),
   anomalies: (hours = 24) => api<AnomalySignal[]>(`/admin/governance/anomalies?hours=${hours}`),
+
+  // ── 시스템 설정 (system.settings.manage) ──
+  settings: () =>
+    api<{ categories: CategoryView[]; encryptionKeyConfigured: boolean }>('/admin/settings'),
+  updateSettings: (category: string, values: Record<string, string>) =>
+    api<CategoryView[]>(`/admin/settings/${category}`, {
+      method: 'PUT',
+      body: JSON.stringify({ values }),
+    }),
+  testSettings: (category: string) =>
+    api<TestResult>(`/admin/settings/${category}/test`, { method: 'POST' }),
 
   // ── 버전·시스템 상태 ──
   version: () => api<VersionView>('/admin/version'),

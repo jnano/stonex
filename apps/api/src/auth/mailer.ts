@@ -1,5 +1,6 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { createTransport, type Transporter } from 'nodemailer';
+import { SettingsService } from '../settings/settings.service';
 
 /**
  * 메일 발송 추상화 (기획서 §13.2 — 발송 수단 미결).
@@ -39,50 +40,72 @@ export class ConsoleMailer implements Mailer {
 }
 
 /**
- * SMTP 발송 어댑터 (§13.2 결정: 개발 단계는 Gmail SMTP).
+ * 설정 기반 메일러 (범용 배포 지원).
  *
- * **운영 전환 시 이 클래스만 교체하거나 접속 정보만 바꾸면 된다** — 인터페이스가 같기 때문이다.
- * Gmail 은 일일 발송 한도와 스팸 분류 위험이 있어 운영에는 부적합하다는 것을 전제로 고른
- * 선택이며, 리얼 발송 흐름을 먼저 확인하려는 목적이다.
+ * **발송 수단과 접속 정보를 DB 설정에서 읽는다.** 관리 화면에서 바꾸면 재기동 없이 반영되도록
+ * 설정 세대(generation)를 보고 전송기를 다시 만든다 — 설정을 바꾸려고 서버를 내려야 한다면
+ * 화면으로 옮긴 의미가 절반은 사라진다.
  *
- * 접속 정보는 전부 환경 변수다(하드코딩 금지). Gmail 은 **앱 비밀번호**를 발급받아 써야 하며
- * 계정 비밀번호로는 인증되지 않는다.
+ * `transport=console` 이면 실제 발송 없이 로그만 남긴다(개발 기본값).
  */
 @Injectable()
-export class SmtpMailer implements Mailer, OnModuleInit {
-  private readonly logger = new Logger(SmtpMailer.name);
+export class ConfiguredMailer implements Mailer {
+  private readonly logger = new Logger('Mailer');
   private transport: Transporter | null = null;
+  private builtFor = -1;
+  private builtWith = '';
 
-  onModuleInit(): void {
-    const host = process.env.SMTP_HOST;
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASSWORD;
-    if (!host || !user || !pass) {
-      // 기동을 막지는 않는다 — 메일이 필요 없는 경로(관리 API 등)까지 함께 죽으면
-      // 설정 하나가 서비스 전체를 세우는 셈이 된다. 대신 발송 시점에 명확히 실패한다.
-      this.logger.error('SMTP 설정이 없습니다 (SMTP_HOST/USER/PASSWORD). 메일 발송이 실패합니다.');
-      return;
-    }
-    const port = Number(process.env.SMTP_PORT ?? 465);
-    this.transport = createTransport({
-      host,
-      port,
-      secure: port === 465, // 465 는 암시적 TLS, 587 은 STARTTLS
-      auth: { user, pass },
-    });
-  }
+  constructor(private readonly settings: SettingsService) {}
 
   async send(to: string, subject: string, body?: string): Promise<void> {
-    if (!this.transport) {
-      throw new Error('SMTP 설정이 없어 메일을 보낼 수 없습니다.');
+    const config = await this.settings.values('mail');
+    const mode = config.transport ?? 'console';
+
+    if (mode !== 'smtp') {
+      // 본문(토큰)은 기본적으로 남기지 않는다. 로그는 보존이 길고 수집기로 흘러간다.
+      const suffix = process.env.DEV_MAIL_LOG_BODY === '1' && body ? ` body=${body}` : '';
+      this.logger.log(`[발송 안 함] to=${to} subject=${subject}${suffix}`);
+      return;
     }
-    await this.transport.sendMail({
-      from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+
+    const transport = this.transportFor(config);
+    await transport.sendMail({
+      from: config.from || config.user,
       to,
       subject,
       text: body ?? '',
     });
-    // **본문은 로그에 남기지 않는다** — 토큰이 그대로 들어 있다.
     this.logger.log(`메일 발송: to=${to} subject=${subject}`);
+  }
+
+  /** 설정이 바뀌었으면 전송기를 새로 만든다 */
+  private transportFor(config: Record<string, string>): Transporter {
+    const signature = `${config.host}:${config.port}:${config.user}`;
+    if (this.transport && this.builtFor === this.settings.generation && this.builtWith === signature) {
+      return this.transport;
+    }
+    if (!config.host || !config.user || !config.password) {
+      // 조용히 성공하지 않는다 — "보낸 줄 알았는데 안 간" 상태가 가장 나쁘다
+      throw new Error('메일 설정이 완료되지 않았습니다 (관리 › 시스템 설정에서 SMTP 를 입력하십시오).');
+    }
+    const port = Number(config.port || 465);
+    this.transport = createTransport({
+      host: config.host,
+      port,
+      secure: port === 465, // 465 는 암시적 TLS, 587 은 STARTTLS
+      auth: { user: config.user, pass: config.password },
+    });
+    this.builtFor = this.settings.generation;
+    this.builtWith = signature;
+    return this.transport;
+  }
+
+  /** 연결 테스트 — 저장한 설정이 실제로 인증되는지 확인한다 */
+  async verify(): Promise<void> {
+    const config = await this.settings.values('mail');
+    if ((config.transport ?? 'console') !== 'smtp') {
+      throw new Error('발송 방식이 SMTP 가 아닙니다.');
+    }
+    await this.transportFor(config).verify();
   }
 }

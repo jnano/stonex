@@ -12,6 +12,7 @@ import { config } from 'dotenv';
 import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { SettingsService } from '../src/settings/settings.service';
 import { GovernanceFreezeService } from '../src/governance/freeze.service';
 import { AuditService } from '../src/audit/audit.service';
 import { RoleGrantService } from '../src/authorization/role-grant.service';
@@ -71,7 +72,7 @@ describe('WP-5 회원 관리 (실 DB)', () => {
     const permVersion = new PermVersionService(p, cache);
     const audit = new AuditService();
     const grantService = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit));
-    const storage = new StorageService();
+    const storage = new StorageService(new SettingsService(p, new AuditService()));
     snapshots = new SnapshotService(p, cache);
     members = new MembersService(
       p, audit, new RoleGrantService(audit, permVersion, new GovernanceFreezeService(p, audit)), permVersion, snapshots,

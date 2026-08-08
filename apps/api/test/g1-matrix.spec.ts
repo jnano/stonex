@@ -115,6 +115,10 @@ const ENDPOINTS: Array<{
   { id: 'GET /admin/audit-logs', method: 'get', path: '/api/v1/admin/audit-logs?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z' },
   { id: 'POST /admin/simulate', method: 'post', path: '/api/v1/admin/simulate', body: { subjectId: '{target}', permission: 'file.read' } },
   { id: 'GET /admin/version', method: 'get', path: '/api/v1/admin/version' },
+  // 시스템 설정 (system.settings.manage — SUPER_ADMIN 전용)
+  { id: 'GET /admin/settings', method: 'get', path: '/api/v1/admin/settings' },
+  { id: 'PUT /admin/settings/:category', method: 'put', path: '/api/v1/admin/settings/mail', body: { values: {} } },
+  { id: 'POST /admin/settings/:category/test', method: 'post', path: '/api/v1/admin/settings/storage/test' },
   // CR-1 2FA 재등록 (step-up 필요)
   { id: 'POST /auth/2fa/reenroll', method: 'post', path: '/api/v1/auth/2fa/reenroll', body: { password: 'x' } },
   { id: 'POST /auth/2fa/reenroll/confirm', method: 'post', path: '/api/v1/auth/2fa/reenroll/confirm', body: { code: '000000' } },

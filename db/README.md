@@ -41,6 +41,7 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 | `audit_logs` 조회 인덱스 2종 (actor·action) | `20260808050000_audit_query_indexes` |
 | `email_change_requests` 부분 유니크 `uq_email_change_pending` (WHERE status='PENDING') | `20260808061023_email_change_requests` |
 | `email_change_requests.status` CHECK (PENDING\|CONFIRMED\|CANCELLED\|EXPIRED) | `20260808061023_email_change_requests` |
+| `system_settings` 값 형태 CHECK (비밀이면 value NULL, 아니면 secret_value NULL) | `20260808085951_system_settings` |
 
 ## 업로드 세션 (`file_uploads`)
 
@@ -89,6 +90,26 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
   대상이 아니다 — 시스템을 동결하면 이상 상황에서 정리 자체가 멈춘다.
 - 해제는 **피동결자 본인을 제외한** 활성 SUPER_ADMIN 1인이 승인한다. DB CHECK 로도 자기해제를 막는다.
   승인 가능 인원이 0명이면 break-glass 런북으로 넘어간다.
+
+## 운영 설정은 DB 에서 온다 (`system_settings`)
+
+이 프로젝트는 **내려받은 사람이 자기 환경에 맞춰 쓰는 것**을 전제한다. 접속 정보를 환경 변수로만
+받으면 설정을 바꿀 때마다 배포 파일을 고치고 재기동해야 하는데, 그건 코드를 다룰 줄 아는
+사람에게만 열린 문이다. 그래서 SMTP·파일 저장소 같은 운영 설정은 관리 화면에서 주입한다.
+
+**환경 변수로 남는 것은 셋뿐이다** — 취향이 아니라 순서 때문이다.
+
+| 변수 | 이유 |
+|---|---|
+| `DATABASE_URL` | DB 에 접속해야 설정을 읽는다. DB 주소를 DB 에 둘 수 없다 |
+| `SETTINGS_ENCRYPTION_KEY` | 비밀값을 푸는 열쇠. 같은 DB 에 두면 자물쇠 옆에 열쇠를 두는 셈이다 |
+| `JWT_SECRET` | 토큰 서명 루트. DB 가 털렸을 때 최후 방어선이 남으려면 분리되어야 한다 |
+
+- 비밀값은 **AES-256-GCM** 으로 암호화해 `secret_value` 에 담고 **응답으로 절대 되돌려주지 않는다**.
+  GCM 을 쓰는 이유는 변조 탐지다 — 설정값은 접속 대상을 정하므로 무결성이 기밀성만큼 중요하다.
+- **환경 변수 폴백은 없다.** 두 곳에서 읽으면 "화면에는 A 인데 실제로는 B" 상태가 생기고
+  그걸 추적하기가 매우 어렵다. 개발·CI 는 `scripts/seed-settings.ts` 로 DB 에 심는다
+  (런타임 폴백이 아니라 프로비저닝이다).
 
 ## 감사 로그는 전용 스키마 `audit` 에 둔다 (중요)
 

@@ -426,6 +426,27 @@ matrix:
     DOMAIN_MANAGER: deny
     OPERATOR: allow
     SUPER_ADMIN: allow
+  "GET /admin/settings":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "PUT /admin/settings/:category":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "POST /admin/settings/:category/test":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
   "POST /auth/2fa/reenroll":
     anonymous: deny
     MEMBER: deny
