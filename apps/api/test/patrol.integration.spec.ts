@@ -22,6 +22,7 @@ import { PrismaGrantStore } from '../src/authorization/grant.store';
 import { GovernancePatrolService } from '../src/governance/patrol.service';
 import { AuditCheckpointService } from '../src/governance/checkpoint.service';
 import { GovernanceAlert, GovernanceNotifier } from '../src/governance/notifier';
+import { PATROL_LOCK_KEY } from '../src/governance/patrol.service';
 import { assertContextUsable, buildContext } from '../src/governance/invariant.registry';
 import { DEFAULT_TENANT_ID, PERMISSIONS, ROLES } from '../../../db/seeds/permissions';
 
@@ -422,8 +423,11 @@ describe('WP-14a 런타임 불변식 순찰 (실 DB)', () => {
       const ri2 = check(result, 'RI-2');
       expect(ri2.status).toBe('failed');
       expect(ri2.error).toContain('ri-2-does-not-exist.sql');
-      // 다른 검사는 계속 수행된다 — 한 건의 실패가 순찰 전체를 마비시키지 않는다
-      expect(result.checks.filter((c) => c.status === 'ok').length).toBeGreaterThanOrEqual(6);
+      // 다른 검사는 계속 수행된다 — 한 건의 실패가 순찰 전체를 마비시키지 않는다.
+      // (다른 스펙이 만드는 일시적 위반 때문에 'ok' 개수는 단언하지 않고, **실패한 것이
+      //  RI-2 하나뿐**임을 본다 — 저장점 격리가 무너지면 여기가 즉시 깨진다)
+      expect(result.checks.filter((c) => c.status === 'failed').map((c) => c.id)).toEqual(['RI-2']);
+      expect(result.checks).toHaveLength(8);
       expect(notifier.alerts.some((a) => a.level === 'PAGE' && a.title.includes('검사 실패'))).toBe(true);
     } finally {
       target.file = original;
@@ -452,26 +456,38 @@ describe('WP-14a 런타임 불변식 순찰 (실 DB)', () => {
     }
   });
 
-  it('복제본 2개가 동시에 돌아도 한 주기에 1회만 실행된다 (advisory lock)', async () => {
+  it('다른 인스턴스가 순찰 중이면 그 주기를 건너뛴다 (advisory lock — 감사도 남기지 않는다)', async () => {
+    // 두 인스턴스를 동시에 띄우는 방식은 **경합이 실제로 겹칠 때만** 유효해 CI 에서 흔들린다.
+    // 여기서는 잠금을 쥔 트랜잭션 **안에서** 다른 클라이언트의 순찰을 호출해 결정적으로 만든다.
+    const replicaClient = new PrismaClient({ adapter: new PrismaPg({ connectionString: TEST_URL }) });
     const audit = new AuditService();
-    const other = new PrismaClient({
-      adapter: new PrismaPg({ connectionString: TEST_URL }),
-    }) as unknown as PrismaService;
-    const replica = new GovernancePatrolService(other, audit, new ResourceGrantService(audit), new PrismaGrantStore(other), notifier);
+    const replica = new GovernancePatrolService(
+      replicaClient as unknown as PrismaService, audit,
+      new ResourceGrantService(audit), new PrismaGrantStore(replicaClient as unknown as PrismaService),
+      notifier,
+    );
 
     await prisma.$executeRaw`DELETE FROM audit.audit_logs
       WHERE action = 'governance.patrol' AND created_at > now() - interval '5 minutes'`;
     try {
-      const [a, b] = await Promise.all([patrol.patrol(), replica.patrol()]);
-      const skipped = [a, b].filter((r) => r.skipped === 'lock');
-      expect(skipped).toHaveLength(1);
+      await prisma.$transaction(async (tx) => {
+        const [row] = await tx.$queryRawUnsafe<Array<{ locked: boolean }>>(
+          `SELECT pg_try_advisory_xact_lock(${PATROL_LOCK_KEY}) AS locked`,
+        );
+        expect(row.locked).toBe(true); // 이 트랜잭션이 잠금을 쥔다
 
+        const result = await replica.patrol();
+        expect(result.skipped).toBe('lock');
+        expect(result.checks).toEqual([]);
+      }, { timeout: 60_000 });
+
+      // 건너뛴 주기는 감사에도 남지 않는다 — 남기면 "돌았는데 이상 없었다"로 오독된다
       const logs = await prisma.$queryRaw<Array<{ n: bigint }>>`
         SELECT count(*) AS n FROM audit.audit_logs
          WHERE action = 'governance.patrol' AND created_at > now() - interval '5 minutes'`;
-      expect(Number(logs[0].n)).toBe(1);
+      expect(Number(logs[0].n)).toBe(0);
     } finally {
-      await (other as unknown as PrismaClient).$disconnect();
+      await replicaClient.$disconnect();
     }
   });
 });

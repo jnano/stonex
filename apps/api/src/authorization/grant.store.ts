@@ -76,4 +76,14 @@ export class PrismaGrantStore implements GrantStore {
   async countAll(tx: Prisma.TransactionClient): Promise<number> {
     return tx.resourceGrant.count();
   }
+
+  /** 만료된 Grant id 목록 — 정리 배치용. 조회 전용 통로 */
+  async findExpired(limit: number): Promise<string[]> {
+    const rows = await this.prisma.resourceGrant.findMany({
+      where: { expires_at: { lt: new Date() } },
+      select: { id: true },
+      take: limit,
+    });
+    return rows.map((r) => r.id);
+  }
 }

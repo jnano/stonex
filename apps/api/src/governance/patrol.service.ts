@@ -26,7 +26,7 @@ const TX_TIMEOUT_MS = Number(process.env.PATROL_TX_TIMEOUT_MS ?? 60_000);
 const BLAST_RADIUS_ROWS = Number(process.env.PATROL_BLAST_RADIUS_ROWS ?? 20);
 const BLAST_RADIUS_RATIO = Number(process.env.PATROL_BLAST_RADIUS_RATIO ?? 0.01);
 /** advisory lock 키 — 이 숫자는 순찰 전용이며 다른 용도로 재사용하지 않는다 */
-const PATROL_LOCK_KEY = 8_140_001;
+export const PATROL_LOCK_KEY = 8_140_001;
 
 export type CheckStatus = 'ok' | 'violated' | 'failed' | 'unavailable';
 
@@ -325,19 +325,17 @@ export class GovernancePatrolService {
    */
   @Cron('50 4 * * *')
   async purgeExpiredGrants(): Promise<number> {
-    const expired = await this.prisma.resourceGrant.findMany({
-      where: { expires_at: { lt: new Date() } },
-      select: { id: true },
-      take: 500, // 한 번에 무제한 삭제하지 않는다 — 남은 분량은 다음 실행이 맡는다
-    });
+    // 한 번에 무제한 삭제하지 않는다 — 남은 분량은 다음 실행이 맡는다.
+    // 조회는 전용 통로(GrantStore)를 경유한다(G-2)
+    const expired = await this.grantStore.findExpired(500);
     if (expired.length === 0) return 0;
 
     let purged = 0;
-    for (const row of expired) {
+    for (const grantId of expired) {
       // 회수는 반드시 서비스를 경유한다 — 회수 전 행이 감사에 남아야 복구 가능하다
       await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         await this.grants.revoke(tx, {
-          tenantId: DEFAULT_TENANT_ID, actorId: null, grantId: row.id,
+          tenantId: DEFAULT_TENANT_ID, actorId: null, grantId,
           reason: '만료 Grant 정리 배치',
         });
       });
