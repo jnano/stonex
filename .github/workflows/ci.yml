@@ -75,6 +75,8 @@ jobs:
       TEST_DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-only-secret-value-at-least-32-characters
+      # 설정은 DB 한 곳에서 읽는다(환경 변수 폴백 없음). CI 는 아래 프로비저닝 단계로 심는다
+      SETTINGS_ENCRYPTION_KEY: Y2ktb25seS0zMmJ5dGUta2V5LWZvci1zZXR0aW5ncyE=
       STORAGE_ENDPOINT: http://localhost:9000
       STORAGE_BUCKET: stonex
       STORAGE_ACCESS_KEY: stonex
@@ -97,6 +99,10 @@ jobs:
       - run: pnpm exec prisma generate
       # 통합 테스트는 실제 스키마를 요구한다 (G-1·G-3 하니스는 자체 마이그레이션을 하지 않는다)
       - run: pnpm exec prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
+      # 운영 설정은 DB 에서 온다 — CI 는 환경 변수를 DB 로 옮겨 심는다(런타임 폴백이 아니다)
+      - run: pnpm tsx scripts/seed-settings.ts
         env:
           DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
       - name: MinIO 기동 (공식 이미지는 `server /data` 인자가 필요해 services 로는 띄울 수 없다)
@@ -186,6 +192,8 @@ jobs:
       TEST_DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-only-secret-value-at-least-32-characters
+      # 설정은 DB 한 곳에서 읽는다(환경 변수 폴백 없음). CI 는 아래 프로비저닝 단계로 심는다
+      SETTINGS_ENCRYPTION_KEY: Y2ktb25seS0zMmJ5dGUta2V5LWZvci1zZXR0aW5ncyE=
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -198,6 +206,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec prisma generate
       - run: pnpm exec prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
+      # 운영 설정은 DB 에서 온다 — CI 는 환경 변수를 DB 로 옮겨 심는다(런타임 폴백이 아니다)
+      - run: pnpm tsx scripts/seed-settings.ts
         env:
           DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
       # 역할 축과 **관계 축**을 함께 검증한다. 관계 축이 없으면 같은 역할이라도 소유·공유·만료·차단에
@@ -234,6 +246,8 @@ jobs:
       TEST_DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-only-secret-value-at-least-32-characters
+      # 설정은 DB 한 곳에서 읽는다(환경 변수 폴백 없음). CI 는 아래 프로비저닝 단계로 심는다
+      SETTINGS_ENCRYPTION_KEY: Y2ktb25seS0zMmJ5dGUta2V5LWZvci1zZXR0aW5ncyE=
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -246,6 +260,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec prisma generate
       - run: pnpm exec prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
+      # 운영 설정은 DB 에서 온다 — CI 는 환경 변수를 DB 로 옮겨 심는다(런타임 폴백이 아니다)
+      - run: pnpm tsx scripts/seed-settings.ts
         env:
           DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
       - run: pnpm --filter @stonex/api exec jest test/g3-attack-scenarios.spec.ts

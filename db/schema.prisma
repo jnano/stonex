@@ -35,6 +35,8 @@ model Tenant {
   domain_verification_attempts DomainVerificationAttempt[]
   domain_transfers             DomainTransfer[]
   governance_freezes           GovernanceFreeze[]
+  email_change_requests        EmailChangeRequest[]
+  system_settings              SystemSetting[]
 
   @@map("tenants")
 }
@@ -67,6 +69,7 @@ model User {
   verification_tokens VerificationToken[]
   file_uploads        FileUpload[]
   governance_freezes  GovernanceFreeze[]
+  email_change_requests EmailChangeRequest[]
 
   @@unique([tenant_id, email])
   @@map("users")
@@ -310,6 +313,70 @@ model GovernanceFreeze {
   @@index([user_id, status]) // 권한 변경 진입부의 선행 검사
   @@index([tenant_id, status])
   @@map("governance_freezes")
+}
+
+/**
+ * 이메일(로그인 식별자) 변경 요청 (MEM-1, 기획서 §6.2).
+ *
+ * **바꾸려는 주소를 별도 테이블에 둔다**(INV-7 — 기존 테이블 무변경). `verification_tokens` 에
+ * 컬럼을 더하지 않는 이유는, 그 테이블이 가입·비밀번호 재설정과 공유되는 범용 구조라
+ * "이 요청에만 있는 필드"가 섞이면 나머지 용도에서 항상 NULL 인 컬럼이 되기 때문이다.
+ *
+ * **확인 전까지 users.email 은 그대로다.** 즉시 바꾸면 오타 하나로 계정에 들어갈 수 없게 되고,
+ * 세션을 탈취한 공격자가 주소만 바꿔 두어도 비밀번호 재설정 메일이 공격자에게 간다.
+ */
+model EmailChangeRequest {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  user_id    String    @db.Uuid
+  /** 바꾸려는 새 주소. 확인이 끝나야 users.email 로 옮겨간다 */
+  new_email  String    @db.VarChar(255)
+  /** 새 주소로 보낸 확인 토큰의 SHA-256. 원문은 저장하지 않는다 */
+  token_hash String    @unique @db.VarChar(64)
+  status     String    @default("PENDING") @db.VarChar(20) // PENDING | CONFIRMED | CANCELLED | EXPIRED
+  expires_at DateTime  @db.Timestamptz()
+  created_at DateTime  @default(now()) @db.Timestamptz()
+  confirmed_at DateTime? @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+  user   User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, status])
+  @@index([status, expires_at])
+  @@map("email_change_requests")
+}
+
+/**
+ * 시스템 설정 (범용 배포 지원).
+ *
+ * **이 프로젝트는 내려받은 사람이 자기 환경에 맞춰 쓰는 것을 전제한다.** 접속 정보를
+ * 환경 변수로만 받으면 설정을 바꿀 때마다 배포 파일을 고치고 재기동해야 하는데, 그건
+ * 코드를 다룰 줄 아는 사람에게만 열린 문이다. 그래서 운영 설정은 관리 화면에서 주입한다.
+ *
+ * 다만 **부트스트랩 3종은 여전히 환경 변수**다(DATABASE_URL·SETTINGS_ENCRYPTION_KEY·JWT_SECRET).
+ * DB 주소를 DB에 둘 수 없고, 비밀값을 푸는 열쇠를 같은 DB에 두면 자물쇠 옆에 열쇠를 두는 셈이다.
+ *
+ * 비밀값은 `secret_value` 에 AES-256-GCM 으로 암호화해 담고 **응답으로 절대 되돌려주지 않는다**.
+ */
+model SystemSetting {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id    String   @db.Uuid
+  /** 'mail' | 'storage' — 화면의 묶음 단위이자 연결 테스트의 단위 */
+  category     String   @db.VarChar(50)
+  key          String   @db.VarChar(100)
+  /** 평문 값 (호스트·포트·버킷 등). 비밀 항목이면 NULL */
+  value        String?  @db.VarChar(500)
+  /** 암호문 (iv.tag.ciphertext, base64). 평문 항목이면 NULL */
+  secret_value String?  @db.Text
+  is_secret    Boolean  @default(false)
+  updated_at   DateTime @default(now()) @updatedAt @db.Timestamptz()
+  updated_by   String?  @db.Uuid
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  @@unique([tenant_id, category, key])
+  @@index([tenant_id, category])
+  @@map("system_settings")
 }
 
 // 이메일 인증(AUTH-1)·비밀번호 재설정(AUTH-4) 토큰 — 해시만 저장, 1회용

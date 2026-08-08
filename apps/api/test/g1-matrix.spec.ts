@@ -106,9 +106,19 @@ const ENDPOINTS: Array<{
   { id: 'GET /admin/governance/freezes', method: 'get', path: '/api/v1/admin/governance/freezes' },
   { id: 'GET /admin/governance/anomalies', method: 'get', path: '/api/v1/admin/governance/anomalies' },
   { id: 'POST /admin/governance/freezes/:id/release', method: 'post', path: '/api/v1/admin/governance/freezes/{freeze}/release', body: {} },
+  // MEM-1 이메일 변경 (재인증 + 새 주소 소유 확인)
+  { id: 'GET /members/me/email-change', method: 'get', path: '/api/v1/members/me/email-change' },
+  { id: 'POST /members/me/email-change', method: 'post', path: '/api/v1/members/me/email-change', body: { newEmail: 'changed@t.local', password: 'x' } },
+  { id: 'DELETE /members/me/email-change/:id', method: 'delete', path: '/api/v1/members/me/email-change/00000000-0000-0000-0000-000000000000' },
+  { id: 'POST /members/email-change/confirm', method: 'post', path: '/api/v1/members/email-change/confirm', body: { token: 'x' } },
   // WP-15 ADM-4 감사 조회 · ADM-5 시뮬레이터
   { id: 'GET /admin/audit-logs', method: 'get', path: '/api/v1/admin/audit-logs?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z' },
   { id: 'POST /admin/simulate', method: 'post', path: '/api/v1/admin/simulate', body: { subjectId: '{target}', permission: 'file.read' } },
+  { id: 'GET /admin/version', method: 'get', path: '/api/v1/admin/version' },
+  // 시스템 설정 (system.settings.manage — SUPER_ADMIN 전용)
+  { id: 'GET /admin/settings', method: 'get', path: '/api/v1/admin/settings' },
+  { id: 'PUT /admin/settings/:category', method: 'put', path: '/api/v1/admin/settings/mail', body: { values: {} } },
+  { id: 'POST /admin/settings/:category/test', method: 'post', path: '/api/v1/admin/settings/storage/test' },
   // CR-1 2FA 재등록 (step-up 필요)
   { id: 'POST /auth/2fa/reenroll', method: 'post', path: '/api/v1/auth/2fa/reenroll', body: { password: 'x' } },
   { id: 'POST /auth/2fa/reenroll/confirm', method: 'post', path: '/api/v1/auth/2fa/reenroll/confirm', body: { code: '000000' } },
@@ -365,6 +375,9 @@ describe('G-1 권한 매트릭스', () => {
     expect(anonymousAllowed).toEqual([
       // 헬스체크 — 의존성 상태를 로드밸런서에 알리는 용도라 인증을 요구하면 목적을 잃는다
       'GET /health', 'GET /health/live', 'GET /health/ready',
+      // 이메일 변경 확인 — 새 주소로 받은 링크를 누르는 시점에는 로그인 상태가 아닐 수 있고,
+      // **토큰 자체가 그 주소의 소유 증명**이다. 1회용이며 해시만 저장된다(MEM-1).
+      'POST /members/email-change/confirm',
       // 인증 진입점 — 로그인 전에 호출해야 하므로 본질적으로 공개다(§6.1 AUTH-1·AUTH-4)
       'POST /auth/signup', 'POST /auth/verify-email',
       'POST /auth/password-reset/request', 'POST /auth/password-reset/confirm',

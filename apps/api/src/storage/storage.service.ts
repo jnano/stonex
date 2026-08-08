@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
+import { SettingsService } from '../settings/settings.service';
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -30,20 +31,34 @@ export const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
-  private readonly client: S3Client;
-  private readonly bucket: string;
+  private cached: { client: S3Client; bucket: string } | null = null;
+  private builtFor = -1;
 
-  constructor() {
-    this.bucket = process.env.STORAGE_BUCKET ?? 'stonex';
-    const endpoint = process.env.STORAGE_ENDPOINT; // MinIO 등 S3 호환 사용 시
-    this.client = new S3Client({
-      region: process.env.STORAGE_REGION ?? 'us-east-1',
-      ...(endpoint ? { endpoint, forcePathStyle: true } : {}),
+  constructor(private readonly settings: SettingsService) {}
+
+  /**
+   * 접속 객체를 설정에서 만든다. **설정이 바뀌면 다시 만든다** — 관리 화면에서 엔드포인트를
+   * 고쳤는데 재기동 전까지 옛 저장소에 쓰고 있으면, 그 사이 올라간 파일을 잃는다.
+   */
+  private async resolve(): Promise<{ client: S3Client; bucket: string }> {
+    if (this.cached && this.builtFor === this.settings.generation) return this.cached;
+
+    const config = await this.settings.values('storage');
+    if (!config.bucket) {
+      throw new Error('저장소 설정이 완료되지 않았습니다 (관리 › 시스템 설정에서 입력하십시오).');
+    }
+    const client = new S3Client({
+      region: config.region || 'us-east-1',
+      // 엔드포인트가 있으면 S3 호환(MinIO·NCP 등) — path-style 이 필요하다
+      ...(config.endpoint ? { endpoint: config.endpoint, forcePathStyle: true } : {}),
       credentials: {
-        accessKeyId: process.env.STORAGE_ACCESS_KEY ?? '',
-        secretAccessKey: process.env.STORAGE_SECRET_KEY ?? '',
+        accessKeyId: config.accessKey ?? '',
+        secretAccessKey: config.secretKey ?? '',
       },
     });
+    this.cached = { client, bucket: config.bucket };
+    this.builtFor = this.settings.generation;
+    return this.cached;
   }
 
   /** 추측 불가능한 오브젝트 키. 외부에 노출하지 않는다(§10.2) */
@@ -60,31 +75,32 @@ export class StorageService {
     contentType: string;
     contentLength: number;
   }): Promise<string> {
+    const { client, bucket } = await this.resolve();
     const command = new PutObjectCommand({
-      Bucket: this.bucket,
+      Bucket: bucket,
       Key: params.storageKey,
       ContentType: params.contentType,
       ContentLength: params.contentLength,
     });
-    return getSignedUrl(this.client, command, { expiresIn: UPLOAD_URL_TTL_SECONDS });
+    return getSignedUrl(client, command, { expiresIn: UPLOAD_URL_TTL_SECONDS });
   }
 
   /** 다운로드용 서명 URL. 브라우저 인라인 실행을 막기 위해 attachment 를 강제한다(§10.4) */
   async createDownloadUrl(params: { storageKey: string; fileName: string }): Promise<string> {
+    const { client, bucket } = await this.resolve();
     const command = new GetObjectCommand({
-      Bucket: this.bucket,
+      Bucket: bucket,
       Key: params.storageKey,
       ResponseContentDisposition: `attachment; filename="${encodeURIComponent(params.fileName)}"`,
     });
-    return getSignedUrl(this.client, command, { expiresIn: DOWNLOAD_URL_TTL_SECONDS });
+    return getSignedUrl(client, command, { expiresIn: DOWNLOAD_URL_TTL_SECONDS });
   }
 
   /** 업로드 완료 검증용 — 실제 오브젝트의 크기·타입·체크섬 확인 */
   async headObject(storageKey: string): Promise<{ size: number; contentType?: string } | null> {
     try {
-      const res = await this.client.send(
-        new HeadObjectCommand({ Bucket: this.bucket, Key: storageKey }),
-      );
+      const { client, bucket } = await this.resolve();
+      const res = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: storageKey }));
       return { size: Number(res.ContentLength ?? 0), contentType: res.ContentType };
     } catch {
       return null; // 오브젝트 부재
@@ -92,13 +108,15 @@ export class StorageService {
   }
 
   async deleteObject(storageKey: string): Promise<void> {
-    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: storageKey }));
+    const { client, bucket } = await this.resolve();
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: storageKey }));
   }
 
   /** readiness 점검용 (§WP-9 항목 8) */
   async ping(): Promise<boolean> {
     try {
-      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      const { client, bucket } = await this.resolve();
+      await client.send(new HeadBucketCommand({ Bucket: bucket }));
       return true;
     } catch (e) {
       this.logger.warn(`스토리지 접속 실패: ${(e as Error).message}`);

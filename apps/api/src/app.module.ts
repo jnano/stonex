@@ -24,9 +24,12 @@ import { AuthGuard, TOKEN_VERIFIER } from './authorization/guards/auth.guard';
 import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
 import { MembersService } from './members/members.service';
+import { EmailChangeService } from './members/email-change.service';
+import { MemberAnonymizationService } from './members/anonymization.service';
 import { RolesService } from './admin/roles.service';
 import { AuditQueryService } from './admin/audit-query.service';
 import { PermissionSimulatorService } from './admin/simulator.service';
+import { VersionService } from './admin/version.service';
 import { FilesService } from './files/files.service';
 import { SharesService } from './files/shares.service';
 import { DomainsService } from './domains/domains.service';
@@ -47,7 +50,8 @@ import { TokenService } from './auth/token.service';
 import { TotpService } from './auth/totp.service';
 import { JwtTokenVerifier } from './auth/jwt-token-verifier';
 import { OnboardingGuard } from './auth/guards/onboarding.guard';
-import { ConsoleMailer, MAILER } from './auth/mailer';
+import { ConfiguredMailer, MAILER } from './auth/mailer';
+import { SettingsService } from './settings/settings.service';
 import {
   BREACH_CHECKER,
   BreachChecker,
@@ -101,9 +105,12 @@ import {
     TotpService,
     AuthService,
     MembersService,
+    EmailChangeService,
+    MemberAnonymizationService,
     RolesService,
     AuditQueryService,
     PermissionSimulatorService,
+    VersionService,
     FilesService,
     SharesService,
     DomainsService,
@@ -120,7 +127,13 @@ import {
     // §13.2 미결(HTML 파일 방식 병행)이 결정되면 이 바인딩만 교체한다
     { provide: DNS_TXT_RESOLVER, useClass: NodeDnsTxtResolver },
     SuperAdminGuardService,
-    { provide: MAILER, useClass: ConsoleMailer },
+    SettingsService,
+    /**
+     * 메일 발송 — **설정은 DB 한 곳에서 온다**(범용 배포 지원).
+     * 환경 변수 폴백을 두지 않는 이유는, 두 곳에서 읽으면 "화면에는 A 인데 실제로는 B" 상태가
+     * 생기고 그걸 추적하기가 매우 어렵기 때문이다.
+     */
+    { provide: MAILER, useClass: ConfiguredMailer },
     { provide: BREACH_CHECKER, useClass: HibpBreachChecker },
     {
       provide: PasswordService,

@@ -6,7 +6,7 @@ import { useSession } from '../lib/session';
 
 /** 로그인 + 진입 화면. 실패 사유는 서버가 구분해 주지 않는다(§10.2) */
 export default function Home() {
-  const { me, loading, refresh, logout } = useSession();
+  const { me, phase, loading, refresh, logout } = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +29,22 @@ export default function Home() {
 
   if (loading) return <main style={{ padding: 32 }}>불러오는 중…</main>;
 
+  // 로그인은 됐지만 온보딩이 남은 상태(§8.5). 이 분기가 없으면 /me 가 막히는 것을
+  // "비로그인"으로 오인해 **로그인 화면으로 계속 되돌아간다.**
+  if (phase === 'onboarding') {
+    return (
+      <main style={{ padding: 32, maxWidth: 480, margin: '0 auto' }}>
+        <h1>계정 설정이 남아 있습니다</h1>
+        <p style={{ color: '#6b7280' }}>
+          로그인은 성공했습니다. 최초 접속 계정은 비밀번호 변경과 2차 인증 등록을 마쳐야
+          관리 화면이 열립니다.
+        </p>
+        <p><a href="/onboarding">설정 마무리하러 가기</a></p>
+        <button onClick={logout}>로그아웃</button>
+      </main>
+    );
+  }
+
   if (me) {
     return (
       <main style={{ padding: 32, maxWidth: 720, margin: '0 auto' }}>
@@ -36,9 +52,17 @@ export default function Home() {
         <p>
           상태: {me.status} · 역할: {me.roles.join(', ') || '없음'} · 권한 {me.permissions.length}종
         </p>
-        <nav style={{ display: 'flex', gap: 12, margin: '16px 0' }}>
-          <a href="/admin/members">회원 관리</a>
-          <a href="/admin/roles">역할 관리</a>
+        <nav style={{ display: 'flex', gap: 12, margin: '16px 0', flexWrap: 'wrap' }}>
+          <a href="/admin/members">회원</a>
+          <a href="/admin/roles">역할</a>
+          <a href="/admin/files">파일</a>
+          <a href="/admin/domains">도메인</a>
+          <a href="/admin/audit">감사 로그</a>
+          <a href="/admin/simulator">시뮬레이터</a>
+          <a href="/admin/governance">거버넌스</a>
+          <a href="/admin/version">버전</a>
+          <a href="/admin/settings">설정</a>
+          <a href="/account">내 계정</a>
         </nav>
         <button onClick={logout}>로그아웃</button>
       </main>

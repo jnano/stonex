@@ -18,6 +18,17 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 오류 표시 문구를 한 곳에서 만든다.
+ *
+ * 화면마다 `${e.message} (${e.status})` 를 손으로 조립하면, 메시지에 이미 코드가 든 경우
+ * 중복 표기가 나고 화면마다 형식도 갈린다.
+ */
+export function errorText(e: unknown, fallback = '요청에 실패했습니다.'): string {
+  if (e instanceof ApiError) return `${e.message} (${e.status})`;
+  return fallback;
+}
+
 export function getAccessToken(): string | null {
   if (typeof window === 'undefined') return null;
   return window.localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -44,7 +55,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     // 401 은 pv 불일치(권한 회수)로도 발생한다 — 재로그인이 정상 흐름이다(§8.3)
     if (res.status === 401) setAccessToken(null);
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-    throw new ApiError(res.status, body.error?.message ?? `요청 실패 (${res.status})`);
+    // 상태 코드는 메시지에 넣지 않는다 — 화면이 따로 붙이므로 넣으면 "(404) (404)" 가 된다
+    throw new ApiError(res.status, body.error?.message ?? '요청이 처리되지 않았습니다.');
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -102,6 +114,188 @@ export interface PermissionCatalogItem {
   assignable: boolean;
 }
 
+export interface OnboardingStatus {
+  mustChangePassword: boolean;
+  totpEnrollmentRequired: boolean;
+}
+
+export interface EmailChangeView {
+  id: string;
+  newEmail: string;
+  status: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+// ── Phase 2 리소스 (파일·도메인) ──
+
+export interface FileSummary {
+  id: string;
+  name: string;
+  sizeBytes: number;
+  mimeType: string;
+  createdAt: string;
+  /** 요청자와의 관계 — 표시 구분용 */
+  relation: 'owner' | 'shared';
+}
+
+export interface ShareSummary {
+  grantId: string;
+  subjectId: string;
+  permission: string;
+  expiresAt: string | null;
+  grantedBy: string;
+  grantedAt: string;
+}
+
+export interface DomainSummary {
+  id: string;
+  fqdn: string;
+  status: string;
+  verifiedAt: string | null;
+  createdAt: string;
+  relation: 'owner' | 'shared';
+  /** 미검증 상태에서만 내려온다 */
+  verificationRecord: { name: string; value: string } | null;
+}
+
+export interface VerificationAttempt {
+  id: string;
+  state: string;
+  reason: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface TransferSummary {
+  id: string;
+  domainId: string;
+  fqdn: string;
+  fromUserId: string;
+  toUserId: string;
+  status: string;
+  reason: string | null;
+  expiresAt: string;
+  createdAt: string;
+}
+
+// ── 거버넌스·감사 ──
+
+export interface CheckStatusView {
+  id: string;
+  title: string;
+  severity: string;
+  /** 'unknown' = 판정 기록 없음. **'ok' 와 반드시 구분해 표시한다**(RT-20) */
+  status: 'ok' | 'violated' | 'failed' | 'unavailable' | 'unknown';
+  violations: number;
+  error?: string;
+}
+
+export interface PatrolStatusView {
+  healthy: boolean;
+  lastRunAt: string | null;
+  lastDurationMs: number | null;
+  hasFailedChecks: boolean;
+  checks: CheckStatusView[];
+  remediated: number;
+  escalated: string[];
+  unknownResourceTypes: string[];
+}
+
+export interface ActionView {
+  at: string;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  reason: string | null;
+  before: { subject?: string; resourceType?: string; resourceId?: string; effect?: string } | null;
+}
+
+export interface FreezeSummary {
+  id: string;
+  userId: string;
+  trigger: string;
+  reason: string;
+  status: string;
+  frozenAt: string;
+  releasedAt: string | null;
+  releasedBy: string | null;
+}
+
+export interface AnomalySignal {
+  ruleId: string;
+  tenantId: string;
+  actorId: string;
+  title: string;
+  detail: Record<string, unknown>;
+}
+
+export interface AuditEntryView {
+  id: string;
+  at: string;
+  actorId: string | null;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  detail: Record<string, unknown>;
+}
+
+export interface SimulationResult {
+  allow: boolean;
+  step: number;
+  /** 사전 정의된 사유 코드뿐 — 평가기의 자유 텍스트는 응답에 실리지 않는다(WT-13) */
+  reason: string;
+  subjectId: string;
+  permission: string;
+  resource: { type: string; id: string } | null;
+}
+
+export interface ChangelogEntry {
+  version: string;
+  date: string | null;
+  sections: Array<{ kind: string; items: string[] }>;
+}
+
+export interface ComponentState {
+  label: string;
+  status: 'ok' | 'mismatch' | 'unknown';
+  detail: string;
+}
+
+export interface VersionView {
+  version: string;
+  commit: string | null;
+  startedAt: string;
+  components: ComponentState[];
+  changelog: ChangelogEntry[];
+}
+
+export interface SettingFieldView {
+  key: string;
+  label: string;
+  kind: string;
+  hint?: string;
+  required?: boolean;
+  options?: Array<{ value: string; label: string }>;
+  placeholder?: string;
+  /** 평문 항목의 현재 값. **비밀 항목은 항상 null** — 서버가 내려주지 않는다 */
+  value: string | null;
+  configured: boolean;
+}
+
+export interface CategoryView {
+  category: string;
+  label: string;
+  description: string;
+  testable: boolean;
+  fields: SettingFieldView[];
+}
+
+export interface TestResult {
+  ok: boolean;
+  message: string;
+}
+
 export const endpoints = {
   login: (email: string, password: string) =>
     api<{ accessToken: string; refreshToken: string }>('/auth/login', {
@@ -109,11 +303,128 @@ export const endpoints = {
       body: JSON.stringify({ email, password }),
     }),
   me: () => api<MeResponse>('/me'),
+
+  // ── 온보딩(§8.5) — 미완료 세션은 이 경로들만 접근할 수 있다 ──
+  onboardingStatus: () => api<OnboardingStatus>('/auth/onboarding/status'),
+  onboardPassword: (password: string) =>
+    api<{ ok: true }>('/auth/onboarding/password', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+  onboardTotpBegin: () => api<{ keyUri: string }>('/auth/onboarding/totp', { method: 'POST' }),
+  onboardTotpConfirm: (code: string) =>
+    api<{ ok: true }>('/auth/onboarding/totp/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  // ── MEM-1 이메일 변경 (재인증 + 새 주소 소유 확인) ──
+  emailChangePending: () => api<EmailChangeView | null>('/members/me/email-change'),
+  requestEmailChange: (newEmail: string, stepUp: { code?: string; password?: string }) =>
+    api<EmailChangeView>('/members/me/email-change', {
+      method: 'POST',
+      body: JSON.stringify({ newEmail, ...stepUp }),
+    }),
+  cancelEmailChange: (id: string) =>
+    api<{ ok: true }>(`/members/me/email-change/${id}`, { method: 'DELETE' }),
+  confirmEmailChange: (token: string) =>
+    api<{ ok: true }>('/members/email-change/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+
   members: (page = 1) => api<{ items: MemberSummary[]; total: number }>(`/members?page=${page}`),
   member: (id: string) => api<MemberDetail>(`/members/${id}`),
   manageable: (id: string) => api<DominanceCheck>(`/members/${id}/manageable`),
   ban: (id: string) => api<MemberDetail>(`/members/${id}/ban`, { method: 'POST' }),
   unban: (id: string) => api<MemberDetail>(`/members/${id}/unban`, { method: 'POST' }),
+  // ── 파일 (FILE-1~7) ──
+  files: (page = 1) => api<{ items: FileSummary[]; total: number }>(`/files?page=${page}`),
+  file: (id: string) => api<FileSummary>(`/files/${id}`),
+  renameFile: (id: string, name: string) =>
+    api<FileSummary>(`/files/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  deleteFile: (id: string) => api<{ ok: true }>(`/files/${id}`, { method: 'DELETE' }),
+  downloadUrl: (id: string) =>
+    api<{ url: string; expiresInSeconds: number }>(`/files/${id}/download-url`),
+  fileShares: (id: string) => api<ShareSummary[]>(`/files/${id}/shares`),
+  createFileShare: (id: string, subjectId: string, permissions: string[], expiresAt?: string) =>
+    api<ShareSummary[]>(`/files/${id}/shares`, {
+      method: 'POST',
+      body: JSON.stringify({ subjectId, permissions, ...(expiresAt ? { expiresAt } : {}) }),
+    }),
+  revokeFileShare: (id: string, grantId: string) =>
+    api<{ ok: true }>(`/files/${id}/shares/${grantId}`, { method: 'DELETE' }),
+  allFiles: (page = 1) => api<{ items: FileSummary[]; total: number }>(`/admin/files?page=${page}`),
+
+  // ── 도메인 (DOM-1~7) ──
+  domains: (page = 1) => api<{ items: DomainSummary[]; total: number }>(`/domains?page=${page}`),
+  createDomain: (fqdn: string) =>
+    api<DomainSummary>('/domains', { method: 'POST', body: JSON.stringify({ fqdn }) }),
+  domain: (id: string) => api<DomainSummary>(`/domains/${id}`),
+  updateDomain: (id: string, fqdn: string) =>
+    api<DomainSummary>(`/domains/${id}`, { method: 'PATCH', body: JSON.stringify({ fqdn }) }),
+  deleteDomain: (id: string) => api<{ ok: true }>(`/domains/${id}`, { method: 'DELETE' }),
+  verifyDomain: (id: string) =>
+    api<{ attemptId: string; state: string }>(`/domains/${id}/verify`, { method: 'POST' }),
+  verificationHistory: (id: string) => api<VerificationAttempt[]>(`/domains/${id}/verification`),
+  delegations: (id: string) => api<ShareSummary[]>(`/domains/${id}/delegations`),
+  createDelegation: (id: string, subjectId: string, permissions: string[]) =>
+    api<ShareSummary[]>(`/domains/${id}/delegations`, {
+      method: 'POST',
+      body: JSON.stringify({ subjectId, permissions }),
+    }),
+  revokeDelegation: (id: string, grantId: string) =>
+    api<{ ok: true }>(`/domains/${id}/delegations/${grantId}`, { method: 'DELETE' }),
+  proposeTransfer: (id: string, toUserId: string) =>
+    api<TransferSummary>(`/domains/${id}/transfers`, {
+      method: 'POST',
+      body: JSON.stringify({ toUserId }),
+    }),
+  cancelTransfer: (domainId: string, transferId: string) =>
+    api<{ ok: true }>(`/domains/${domainId}/transfers/${transferId}`, { method: 'DELETE' }),
+  myTransfers: () => api<TransferSummary[]>('/transfers'),
+  acceptTransfer: (id: string) =>
+    api<TransferSummary>(`/transfers/${id}/accept`, { method: 'POST' }),
+
+  // ── 거버넌스 (§14) ──
+  patrolStatus: () => api<PatrolStatusView>('/admin/governance/status'),
+  governanceActions: (limit = 50) => api<ActionView[]>(`/admin/governance/actions?limit=${limit}`),
+  freezes: (includeReleased = false) =>
+    api<FreezeSummary[]>(`/admin/governance/freezes?includeReleased=${includeReleased}`),
+  releaseFreeze: (id: string, note?: string) =>
+    api<FreezeSummary>(`/admin/governance/freezes/${id}/release`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    }),
+  anomalies: (hours = 24) => api<AnomalySignal[]>(`/admin/governance/anomalies?hours=${hours}`),
+
+  // ── 시스템 설정 (system.settings.manage) ──
+  settings: () =>
+    api<{ categories: CategoryView[]; encryptionKeyConfigured: boolean }>('/admin/settings'),
+  updateSettings: (category: string, values: Record<string, string>) =>
+    api<CategoryView[]>(`/admin/settings/${category}`, {
+      method: 'PUT',
+      body: JSON.stringify({ values }),
+    }),
+  testSettings: (category: string) =>
+    api<TestResult>(`/admin/settings/${category}/test`, { method: 'POST' }),
+
+  // ── 버전·시스템 상태 ──
+  version: () => api<VersionView>('/admin/version'),
+
+  // ── ADM-4·5 ──
+  auditLogs: (params: {
+    from: string; to: string; actorId?: string; action?: string;
+    targetType?: string; targetId?: string; page?: number; size?: number;
+  }) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') q.set(k, String(v));
+    return api<{ items: AuditEntryView[]; total: number }>(`/admin/audit-logs?${q.toString()}`);
+  },
+  simulate: (input: {
+    subjectId: string; permission: string; resourceType?: string; resourceId?: string;
+  }) => api<SimulationResult>('/admin/simulate', { method: 'POST', body: JSON.stringify(input) }),
+
   roles: () => api<RoleSummary[]>('/admin/roles'),
   role: (id: string) => api<RoleDetail>(`/admin/roles/${id}`),
   permissionCatalog: () => api<PermissionCatalogItem[]>('/admin/roles/permissions'),

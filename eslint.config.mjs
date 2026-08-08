@@ -1,5 +1,5 @@
 import tseslint from 'typescript-eslint';
-import { g2RestrictedSyntax } from './governance/eslint-rules/g2-rules.mjs';
+import { g2RestrictedSyntax, g2WebRestrictedSyntax } from './governance/eslint-rules/g2-rules.mjs';
 
 export default tseslint.config(
   {
@@ -10,6 +10,15 @@ export default tseslint.config(
     // G-2 게이트: 전 소스에 적용, 예외(disable 주석) 발견 시 코드 리뷰에서 반려
     rules: {
       'no-restricted-syntax': ['error', ...g2RestrictedSyntax],
+    },
+  },
+  {
+    // 프론트엔드: 표시 분기가 보안 경계로 변질되는 것을 막는다(§3·§8.4).
+    // lib/session.tsx 는 can() 의 **구현체**이므로 유일한 예외다 — 여기서 한 번만 권한 배열을 본다.
+    files: ['apps/web/**/*.ts', 'apps/web/**/*.tsx'],
+    ignores: ['apps/web/lib/session.tsx'],
+    rules: {
+      'no-restricted-syntax': ['error', ...g2RestrictedSyntax, ...g2WebRestrictedSyntax],
     },
   },
   {

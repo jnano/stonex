@@ -15,6 +15,8 @@ import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { CreateBucketCommand, S3Client } from '@aws-sdk/client-s3';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { AuditService } from '../src/audit/audit.service';
+import { SettingsService } from '../src/settings/settings.service';
 import { StorageService, DOWNLOAD_URL_TTL_SECONDS, UPLOAD_URL_TTL_SECONDS } from '../src/storage/storage.service';
 import { UploadSessionService } from '../src/storage/upload-session.service';
 
@@ -42,7 +44,7 @@ describe('WP-9 스토리지 기반 (실 MinIO + 실 DB)', () => {
     });
     process.env.DATABASE_URL = TEST_URL;
     prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: TEST_URL }) });
-    storage = new StorageService();
+    storage = new StorageService(new SettingsService(prisma as unknown as PrismaService, new AuditService()));
     sessions = new UploadSessionService(prisma as unknown as PrismaService, storage);
 
     // 버킷 준비 (docker-compose 의 minio-init 에 해당)

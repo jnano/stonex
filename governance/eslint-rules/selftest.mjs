@@ -1,7 +1,7 @@
 // G-2 룰 자가 검증: 알려진 위반 코드가 반드시 검출되는지 확인한다.
 // 룰이 조용히 무력화(설정 누락·셀렉터 오타)되면 이 스크립트가 CI lint 잡을 실패시킨다.
 import { ESLint } from 'eslint';
-import { g2RestrictedSyntax } from './g2-rules.mjs';
+import { g2RestrictedSyntax, g2WebRestrictedSyntax } from './g2-rules.mjs';
 
 const VIOLATIONS = [
   { code: `if (role === 'ADMIN') { grant(); }`, name: 'role 식별자 비교' },
@@ -25,7 +25,43 @@ const eslint = new ESLint({
   ],
 });
 
+const WEB_VIOLATIONS = [
+  { code: `if (me.roles.includes('SUPER_ADMIN')) { show(); }`, name: '역할 코드로 화면 분기' },
+  { code: `const ok = me.permissions.some((p) => p.code === 'file.read');`, name: '권한 배열 직접 탐색' },
+  { code: `const found = user.permissions.find((p) => p.code === x);`, name: '권한 배열 find' },
+];
+const WEB_CLEAN = [
+  { code: `if (can('file.read')) { show(); }`, name: 'can() 정상 사용' },
+  { code: `const names = items.map((i) => i.name).includes(target);`, name: '무관한 includes' },
+];
+
+const webEslint = new ESLint({
+  overrideConfigFile: true,
+  overrideConfig: [
+    {
+      files: ['**/*.ts', '**/*.tsx', '**/*.js'],
+      rules: { 'no-restricted-syntax': ['error', ...g2RestrictedSyntax, ...g2WebRestrictedSyntax] },
+    },
+  ],
+});
+
 let failed = false;
+for (const v of WEB_VIOLATIONS) {
+  const [res] = await webEslint.lintText(v.code, { filePath: 'sample.tsx' });
+  if (res.errorCount === 0) {
+    console.error(`G-2(web) selftest 실패: 위반 미검출 — ${v.name}`);
+    failed = true;
+  }
+}
+for (const c of WEB_CLEAN) {
+  const [res] = await webEslint.lintText(c.code, { filePath: 'sample.tsx' });
+  const errs = res.messages.filter((m) => m.ruleId === 'no-restricted-syntax');
+  if (errs.length > 0) {
+    console.error(`G-2(web) selftest 실패: 오탐 — ${c.name}`);
+    failed = true;
+  }
+}
+
 for (const v of VIOLATIONS) {
   const [res] = await eslint.lintText(v.code, { filePath: 'sample.ts' });
   if (res.errorCount === 0) {
