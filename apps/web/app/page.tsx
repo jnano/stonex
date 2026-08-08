@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { endpoints, setAccessToken } from '../lib/api';
+import { DEV_LOGIN_ENABLED, endpoints, setAccessToken } from '../lib/api';
 import { useSession } from '../lib/session';
 import { visibleNavItems } from '../lib/nav';
 
@@ -64,6 +64,21 @@ export default function Home() {
     );
   }
 
+  /** 개발 전용 — 비밀번호 없이 시드 계정으로 들어간다. 실제 토큰을 받으므로
+   *  이후 화면 동작은 운영과 같다(우회되는 건 비밀번호 확인 한 단계뿐) */
+  const devLogin = (target: string) => {
+    setBusy(true);
+    setError(null);
+    void endpoints
+      .devLogin(target)
+      .then(({ accessToken }) => {
+        setAccessToken(accessToken);
+        return refresh();
+      })
+      .catch(() => setError('개발 로그인에 실패했습니다 — 서버에도 DEV_LOGIN=1 이 필요합니다.'))
+      .finally(() => setBusy(false));
+  };
+
   return (
     <main style={{ padding: 32, maxWidth: 360, margin: '0 auto' }}>
       <h1>로그인</h1>
@@ -78,6 +93,27 @@ export default function Home() {
         />
         <button type="submit" disabled={busy}>{busy ? '확인 중…' : '로그인'}</button>
       </form>
+
+      {DEV_LOGIN_ENABLED && (
+        <div style={{ marginTop: 20, padding: 12, border: '1px dashed #f59e0b', borderRadius: 6 }}>
+          <p style={{ margin: '0 0 8px', fontSize: 12, color: '#92400e' }}>
+            <strong>개발 전용</strong> — 배포 빌드에는 포함되지 않습니다.
+          </p>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button type="button" onClick={() => devLogin('admin@stonex.local')} disabled={busy}>
+              관리자로 로그인
+            </button>
+            <button
+              type="button"
+              onClick={() => { if (email.trim()) devLogin(email.trim()); }}
+              disabled={busy || !email.trim()}
+              title="위 이메일 칸의 계정으로 비밀번호 없이 로그인"
+            >
+              입력한 계정으로
+            </button>
+          </div>
+        </div>
+      )}
       {error && <p style={{ color: '#b00020' }}>{error}</p>}
     </main>
   );

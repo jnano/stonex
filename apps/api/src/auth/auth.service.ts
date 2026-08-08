@@ -146,6 +146,24 @@ export class AuthService {
     return this.issueTokenPair(user.id, user.tenant_id, user.perm_version, null);
   }
 
+  /**
+   * 개발 전용 로그인 — **비밀번호 확인만** 건너뛴다(auth/dev-login.ts 참조).
+   *
+   * 계정 존재·상태 검사는 그대로 받고 실제 토큰을 발급한다. 이후 Guard·평가기·pv·
+   * 온보딩 게이트는 운영과 완전히 같은 경로를 탄다 — 그래야 개발에서 본 동작이
+   * 배포에서도 같다. 이 메서드는 라우트가 등록될 때만 도달 가능하고, 그 등록은
+   * DEV_LOGIN=1 + 비프로덕션에서만 일어난다.
+   */
+  async devLogin(email: string): Promise<TokenPair> {
+    const user = await this.prisma.user.findUnique({
+      where: { tenant_id_email: { tenant_id: DEFAULT_TENANT_ID, email } },
+    });
+    // 없는 계정을 만들어 주지 않는다 — 시드가 만든 계정으로만 들어간다
+    if (!user) throw new UnauthorizedException();
+    if (user.status !== 'ACTIVE') throw new UnauthorizedException();
+    return this.issueTokenPair(user.id, user.tenant_id, user.perm_version, null);
+  }
+
   /** family 를 넘기면 회전(같은 family 유지), null 이면 새 family 시작 */
   private async issueTokenPair(
     userId: string,
