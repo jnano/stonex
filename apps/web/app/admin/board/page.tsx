@@ -6,6 +6,7 @@ import {
   endpoints, errorText, type BoardSummary, type BriResult, type ReportView,
 } from '../../../lib/api';
 import { Banner, Card, Empty, Shell, s, statusStyle } from '../../../lib/ui';
+import { boardTypeLabel, capabilityLabel, visibilityLabel } from '../../../lib/board-labels';
 
 const BOARD_TYPES = ['FORUM', 'NOTICE', 'QNA', 'GALLERY', 'FAQ'];
 const VISIBILITIES = ['PUBLIC', 'RESTRICTED', 'PRIVATE'];
@@ -46,7 +47,7 @@ export default function AdminBoardPage() {
     void endpoints
       .createBoard(draft)
       .then(() => {
-        setMessage(`게시판 "${draft.name}" 을 만들었습니다 (${draft.boardType} 프리셋 적용).`);
+        setMessage(`게시판 "${draft.name}" 을 만들었습니다 (${boardTypeLabel(draft.boardType)} 프리셋 적용).`);
         setDraft({ slug: '', name: '', boardType: 'FORUM', visibility: 'PUBLIC' });
         return load();
       })
@@ -96,10 +97,10 @@ export default function AdminBoardPage() {
           <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })}
             placeholder="이름" style={s.input} />
           <select value={draft.boardType} onChange={(e) => setDraft({ ...draft, boardType: e.target.value })} style={s.input}>
-            {BOARD_TYPES.map((t) => <option key={t}>{t}</option>)}
+            {BOARD_TYPES.map((t) => <option key={t} value={t}>{boardTypeLabel(t)}</option>)}
           </select>
           <select value={draft.visibility} onChange={(e) => setDraft({ ...draft, visibility: e.target.value })} style={s.input}>
-            {VISIBILITIES.map((v) => <option key={v}>{v}</option>)}
+            {VISIBILITIES.map((v) => <option key={v} value={v}>{visibilityLabel(v)}</option>)}
           </select>
           <button onClick={createBoard} disabled={!draft.slug || !draft.name} style={s.button}>생성</button>
         </div>
@@ -113,7 +114,7 @@ export default function AdminBoardPage() {
               <div>
                 <Link href={`/board/${b.id}`} style={{ fontWeight: 600 }}>{b.name}</Link>
                 <span style={{ ...s.muted, marginLeft: 8, fontSize: 12 }}>
-                  /{b.slug} · {b.boardType} · {b.visibility} · 글 {b.postCount}
+                  /{b.slug} · {boardTypeLabel(b.boardType)} · {visibilityLabel(b.visibility)} · 글 {b.postCount}
                 </span>
               </div>
               <button onClick={() => toggleCapsPanel(b.id)} style={s.button}>기능모듈</button>
@@ -127,7 +128,7 @@ export default function AdminBoardPage() {
                       checked={c.enabled}
                       onChange={(e) => setCapability(b.id, c.key, e.target.checked)}
                     />
-                    {c.key}
+                    {capabilityLabel(c.key)}
                   </label>
                 ))}
               </div>
