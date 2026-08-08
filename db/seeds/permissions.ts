@@ -26,6 +26,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { code: 'file.update', scope: 'owned', module: 'core', description: '소유 파일 메타데이터 수정' },
   { code: 'file.delete', scope: 'owned', module: 'core', description: '소유 파일 삭제' },
   { code: 'file.share', scope: 'owned', module: 'core', description: '소유 파일 공유(Grant 생성/회수)' },
+  { code: 'file.share.all', scope: 'global', module: 'core', description: '타인 파일 공유 생성·회수 (관리자용, 부여 범위는 file.read로 제한)' },
   { code: 'file.read.all', scope: 'global', module: 'core', description: '전체 파일 접근 (관리자용)' },
   { code: 'file.delete.all', scope: 'global', module: 'core', description: '전체 파일 삭제 (관리자용)' },
   { code: 'domain.create', scope: 'global', module: 'core', description: '도메인 등록 (생성 행위)' },
@@ -34,6 +35,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { code: 'domain.delete', scope: 'owned', module: 'core', description: '소유 도메인 삭제' },
   { code: 'domain.verify', scope: 'owned', module: 'core', description: '소유 도메인 소유권 검증 실행' },
   { code: 'domain.transfer', scope: 'owned', module: 'core', description: '소유 도메인 소유자 이전 발의' },
+  { code: 'domain.share', scope: 'owned', module: 'core', description: '소유 도메인 운영 위임(Grant 생성/회수)' },
   { code: 'domain.read.all', scope: 'global', module: 'core', description: '전체 도메인 조회 (관리자용)' },
   { code: 'domain.update.all', scope: 'global', module: 'core', description: '전체 도메인 수정 (관리자용)' },
   { code: 'domain.delete.all', scope: 'global', module: 'core', description: '전체 도메인 삭제 (관리자용)' },
@@ -41,6 +43,8 @@ export const PERMISSIONS: PermissionDef[] = [
   { code: 'admin.role.read', scope: 'global', module: 'core', description: '역할·권한 정의 조회' },
   { code: 'admin.role.manage', scope: 'global', module: 'core', description: '역할 생성·수정·삭제, 역할-권한 매핑 편집' },
   { code: 'admin.audit.read', scope: 'global', module: 'core', description: '감사 로그 조회' },
+  { code: 'governance.read', scope: 'global', module: 'core', description: '거버넌스 상태·활동 조회 (§14, RT-20)' },
+  { code: 'governance.freeze.manage', scope: 'global', module: 'core', description: 'L-2 동결 해제 승인 (SUPER_ADMIN 전용)' },
   { code: 'system.settings.manage', scope: 'global', module: 'core', description: '시스템 설정 변경' },
 ];
 
@@ -64,11 +68,41 @@ export interface RoleDef {
   permissions: string[];
 }
 
-const MEMBER_PERMS = ['file.read', 'file.upload', 'file.update', 'file.delete', 'file.share', 'domain.read'];
+/**
+ * 역할 권한은 **하위 역할 집합에서 프로그램적으로 전개**한다 (기획서 §4.5, RI-9).
+ *
+ * 상위 역할의 권한을 손으로 나열하면, 하위 역할에 권한이 추가될 때 상위가 따라가지 못해
+ * 우위 격자(SUPER_ADMIN ⊋ OPERATOR ⊋ {FILE_MANAGER, DOMAIN_MANAGER} ⊋ MEMBER)가 조용히 무너진다.
+ * 격자가 깨지면 우위 검사(§4.6-1)가 INCOMPARABLE을 반환해 **상위 역할이 하위 회원을 관리할 수 없게 된다.**
+ * 아래 전개 구조가 그 사고를 구조적으로 막고, G-4의 격자 검사가 이를 재확인한다.
+ */
+const MEMBER_PERMS = [
+  // 파일: 자기 소유분
+  'file.read', 'file.upload', 'file.update', 'file.delete', 'file.share',
+  // 도메인: 자기 소유분 (등록 domain.create 는 global 이므로 DOMAIN_MANAGER 이상)
+  'domain.read', 'domain.update', 'domain.verify', 'domain.delete', 'domain.transfer', 'domain.share',
+];
 const FILE_MANAGER_PERMS = [...MEMBER_PERMS, 'file.read.all', 'file.delete.all'];
 const DOMAIN_MANAGER_PERMS = [
   ...MEMBER_PERMS,
   'domain.create', 'domain.read.all', 'domain.update.all', 'domain.delete.all', 'domain.verify.all',
+];
+const OPERATOR_PERMS = [
+  ...new Set([...FILE_MANAGER_PERMS, ...DOMAIN_MANAGER_PERMS]),
+  'member.read', 'member.update', 'member.ban', 'member.role.assign', 'member.delete',
+  'admin.audit.read', 'governance.read',
+];
+
+/**
+ * 우위 격자 선언 — 상위 역할은 하위 역할의 **진상위 집합**이어야 한다.
+ * G-4(governance/g4-seed-check.ts)가 이 선언을 실제 매핑과 대조한다.
+ */
+export const ROLE_LATTICE: Array<{ superior: string; inferior: string }> = [
+  { superior: 'SUPER_ADMIN', inferior: 'OPERATOR' },
+  { superior: 'OPERATOR', inferior: 'FILE_MANAGER' },
+  { superior: 'OPERATOR', inferior: 'DOMAIN_MANAGER' },
+  { superior: 'FILE_MANAGER', inferior: 'MEMBER' },
+  { superior: 'DOMAIN_MANAGER', inferior: 'MEMBER' },
 ];
 
 /** 기획서 §4.5 표와 1:1 — 5종. "보유분 +"는 여기서 개별 코드로 전개해 저장한다(역할 상속 없음) */
@@ -76,14 +110,7 @@ export const ROLES: RoleDef[] = [
   { code: 'MEMBER', name: '일반회원', displayOrder: 10, requires2fa: false, isSystem: true, permissions: MEMBER_PERMS },
   { code: 'FILE_MANAGER', name: '파일관리자', displayOrder: 30, requires2fa: false, isSystem: false, permissions: FILE_MANAGER_PERMS },
   { code: 'DOMAIN_MANAGER', name: '도메인관리자', displayOrder: 30, requires2fa: false, isSystem: false, permissions: DOMAIN_MANAGER_PERMS },
-  {
-    code: 'OPERATOR', name: '운영자', displayOrder: 60, requires2fa: true, isSystem: false,
-    permissions: [
-      ...new Set([...FILE_MANAGER_PERMS, ...DOMAIN_MANAGER_PERMS]),
-      'member.read', 'member.update', 'member.ban', 'member.role.assign', 'member.delete',
-      'admin.audit.read',
-    ],
-  },
+  { code: 'OPERATOR', name: '운영자', displayOrder: 60, requires2fa: true, isSystem: false, permissions: OPERATOR_PERMS },
   { code: 'SUPER_ADMIN', name: '최고관리자', displayOrder: 100, requires2fa: true, isSystem: true, permissions: ['*'] },
 ];
 
