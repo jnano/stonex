@@ -47,6 +47,21 @@ export const PERMISSIONS: PermissionDef[] = [
   { code: 'governance.read', scope: 'global', module: 'core', description: '거버넌스 상태·활동 조회 (§14, RT-20)' },
   { code: 'governance.freeze.manage', scope: 'global', module: 'core', description: 'L-2 동결 해제 승인 (SUPER_ADMIN 전용)' },
   { code: 'system.settings.manage', scope: 'global', module: 'core', description: '시스템 설정 변경' },
+
+  // ── board 모듈 기여 시작 (D-2 — 트랙 B 추출 시 이 블록이 모듈 시드 조각이 된다) ──
+  { code: 'board.read', scope: 'global', module: 'board', description: '게시판·게시글·댓글 조회 (가시성은 §3.3 정책이 추가 판정)' },
+  { code: 'board.write', scope: 'global', module: 'board', description: '게시글 작성' },
+  { code: 'board.comment', scope: 'global', module: 'board', description: '댓글 작성' },
+  { code: 'post.update', scope: 'owned', module: 'board', description: '자신의 게시글 수정' },
+  { code: 'post.delete', scope: 'owned', module: 'board', description: '자신의 게시글 삭제' },
+  { code: 'comment.update', scope: 'owned', module: 'board', description: '자신의 댓글 수정' },
+  { code: 'comment.delete', scope: 'owned', module: 'board', description: '자신의 댓글 삭제' },
+  { code: 'board.moderate', scope: 'owned', module: 'board', description: '게시판 운영 (게시판 단위 Grant 로 부여 — §3.3)' },
+  { code: 'board.moderate.all', scope: 'global', module: 'board', description: '전체 게시판 운영 (플랫폼 운영자용)' },
+  { code: 'post.delete.all', scope: 'global', module: 'board', description: '소유 무관 게시글 삭제 (플랫폼 관리자용)' },
+  { code: 'comment.delete.all', scope: 'global', module: 'board', description: '소유 무관 댓글 삭제 (플랫폼 관리자용)' },
+  { code: 'board.manage', scope: 'global', module: 'board', description: '게시판 생성·설정·타입·기능모듈 on/off·삭제' },
+  // ── board 모듈 기여 끝 ──
 ];
 
 /**
@@ -57,6 +72,8 @@ export const PERMISSIONS: PermissionDef[] = [
 export const GRANT_WHITELIST: Record<string, string[]> = {
   file: ['file.read', 'file.update'],
   domain: ['domain.read', 'domain.update', 'domain.verify'],
+  // ── board 모듈 기여 (D-2): board.manage·*.all 은 제외 — 재위임·권한 환전 차단(스펙 §3.1) ──
+  board: ['board.read', 'board.write', 'board.comment', 'board.moderate'],
 };
 
 export interface RoleDef {
@@ -83,6 +100,11 @@ const MEMBER_PERMS = [
   // 도메인: 자기 소유분 (등록 domain.create 는 global 이므로 DOMAIN_MANAGER 이상)
   'domain.read', 'domain.update', 'domain.verify', 'domain.delete', 'domain.transfer', 'domain.share',
 ];
+// ── board 모듈 기여 (D-2): MEMBER 는 게시판 이용 전반 + 자기 글·댓글 관리(스펙 §3.2) ──
+MEMBER_PERMS.push(
+  'board.read', 'board.write', 'board.comment',
+  'post.update', 'post.delete', 'comment.update', 'comment.delete',
+);
 const FILE_MANAGER_PERMS = [...MEMBER_PERMS, 'file.read.all', 'file.delete.all'];
 const DOMAIN_MANAGER_PERMS = [
   ...MEMBER_PERMS,
@@ -92,6 +114,9 @@ const OPERATOR_PERMS = [
   ...new Set([...FILE_MANAGER_PERMS, ...DOMAIN_MANAGER_PERMS]),
   'member.read', 'member.update', 'member.ban', 'member.role.assign', 'member.delete',
   'admin.audit.read', 'governance.read',
+  // ── board 모듈 기여 (D-2): 운영자는 전 게시판 운영·타인 글/댓글 삭제. board.manage 는
+  // SUPER_ADMIN 전용(생성·삭제는 최고 권한 — 스펙 §3.2, 격자는 '*' 전개로 유지) ──
+  'board.moderate.all', 'post.delete.all', 'comment.delete.all',
 ];
 
 /**

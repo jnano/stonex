@@ -15,7 +15,7 @@ import request from 'supertest';
 import { PrismaClient } from '@stonex/db';
 import { TokenService } from '../src/auth/token.service';
 import { createPrisma, createTestApp, uid } from './support/test-app';
-import { MATRIX_ROWS, RowActor, createActorForRole, seedRolesForTenant } from './support/matrix-fixture';
+import { MATRIX_ROWS, RowActor, createActorForRole, refreshActorToken, seedRolesForTenant } from './support/matrix-fixture';
 // 주: `app.controllers`(→ auth.controller)는 **정적으로 import 하지 않는다.**
 // 그 모듈이 로드되는 순간 @Throttle 데코레이터가 평가되어 AUTH_RATE_LIMIT 이 고정되므로,
 // 아래 beforeAll 의 환경 변수 설정이 무효가 된다. 필요한 곳에서 동적으로 가져온다.
@@ -119,6 +119,27 @@ const ENDPOINTS: Array<{
   { id: 'GET /admin/settings', method: 'get', path: '/api/v1/admin/settings' },
   { id: 'PUT /admin/settings/:category', method: 'put', path: '/api/v1/admin/settings/mail', body: { values: {} } },
   { id: 'POST /admin/settings/:category/test', method: 'post', path: '/api/v1/admin/settings/storage/test' },
+  // 주의: board 블록은 반드시 '역할 관리 잔여'(PUT /admin/roles/:id/permissions codes:[])
+  // **앞**에 둔다 — 그 라우트가 SUPER_ADMIN 행에서 성공하며 MEMBER 역할을 비우므로,
+  // 뒤에 오는 행은 권한 판정이 아니라 "비워진 역할"을 기록하게 된다(WP-B1에서 발견).
+  // ── board 모듈 기여 (D-2, WP-B1) — 비회원 접근 없음(DEC-4): anonymous 는 전 행 deny 가 정상 ──
+  { id: 'GET /boards', method: 'get', path: '/api/v1/boards' },
+  { id: 'GET /boards/:id', method: 'get', path: '/api/v1/boards/{board}' },
+  { id: 'POST /boards', method: 'post', path: '/api/v1/boards', body: { slug: 'matrix-board-new', name: '매트릭스' } },
+  { id: 'PATCH /boards/:id', method: 'patch', path: '/api/v1/boards/{board}', body: { name: '수정' } },
+  { id: 'POST /boards/:id/members', method: 'post', path: '/api/v1/boards/{board}/members', body: { userId: '{grantSubject}' } },
+  { id: 'DELETE /boards/:id/members/:userId', method: 'delete', path: '/api/v1/boards/{board}/members/{grantSubject}' },
+  { id: 'GET /boards/:id/posts', method: 'get', path: '/api/v1/boards/{board}/posts' },
+  { id: 'POST /boards/:id/posts', method: 'post', path: '/api/v1/boards/{board}/posts', body: { title: 't', bodyMd: 'b' } },
+  { id: 'GET /posts/:id', method: 'get', path: '/api/v1/posts/{post}' },
+  { id: 'PATCH /posts/:id', method: 'patch', path: '/api/v1/posts/{post}', body: { title: 'x' } },
+  { id: 'DELETE /posts/:id', method: 'delete', path: '/api/v1/posts/{rowPost}' },
+  { id: 'DELETE /admin/posts/:id', method: 'delete', path: '/api/v1/admin/posts/{rowPost}' },
+  { id: 'GET /posts/:id/comments', method: 'get', path: '/api/v1/posts/{post}/comments' },
+  { id: 'POST /posts/:id/comments', method: 'post', path: '/api/v1/posts/{post}/comments', body: { bodyMd: 'c' } },
+  { id: 'PATCH /comments/:id', method: 'patch', path: '/api/v1/comments/{rowComment}', body: { bodyMd: 'x' } },
+  { id: 'DELETE /comments/:id', method: 'delete', path: '/api/v1/comments/{rowComment}' },
+  { id: 'DELETE /admin/comments/:id', method: 'delete', path: '/api/v1/admin/comments/{rowComment}' },
   // CR-1 2FA 재등록 (step-up 필요)
   { id: 'POST /auth/2fa/reenroll', method: 'post', path: '/api/v1/auth/2fa/reenroll', body: { password: 'x' } },
   { id: 'POST /auth/2fa/reenroll/confirm', method: 'post', path: '/api/v1/auth/2fa/reenroll/confirm', body: { code: '000000' } },
@@ -170,6 +191,7 @@ describe('G-1 권한 매트릭스', () => {
   let app: INestApplication;
   let prisma: PrismaClient;
   let actors: RowActor[];
+  let tokenService: TokenService;
   let targetUserId: string;
   let memberRoleId: string;
   let fileId: string;
@@ -183,6 +205,12 @@ describe('G-1 권한 매트릭스', () => {
   const rowDomainGrants: Record<string, string> = {};
   /** 해제 라우트가 **존재하는** 동결을 가리켜야 인가 판정이 드러난다 */
   let freezeId: string;
+  // ── board 모듈 기여 (D-2): PUBLIC 게시판 + 타인 소유 게시글·댓글. 삭제 라우트는 행별 픽스처 ──
+  let boardId: string;
+  let postId: string;
+  let grantSubjectId: string;
+  const rowPosts: Record<string, string> = {};
+  const rowComments: Record<string, string> = {};
 
   beforeAll(async () => {
     prisma = createPrisma();
@@ -192,10 +220,10 @@ describe('G-1 권한 매트릭스', () => {
     );
     memberRoleId = roleIds['MEMBER'];
 
-    const tokens = new TokenService();
+    tokenService = new TokenService();
     actors = [{ row: 'anonymous', userId: null, authorization: null }];
     for (const row of MATRIX_ROWS.filter((r) => r !== 'anonymous')) {
-      actors.push(await createActorForRole(prisma, tokens, TENANT, row, roleIds));
+      actors.push(await createActorForRole(prisma, tokenService, TENANT, row, roleIds));
     }
 
     // 관리 행위의 대상 — 어떤 행위자보다 권한이 약해야 우위 검사가 권한 자체를 가리지 않는다
@@ -219,6 +247,7 @@ describe('G-1 권한 매트릭스', () => {
         name: 'Grant 대상', status: 'ACTIVE',
       },
     });
+    grantSubjectId = grantSubject.id;
 
     const resourceOwner = await prisma.user.create({
       data: {
@@ -280,6 +309,37 @@ describe('G-1 권한 매트릭스', () => {
     // 매트릭스가 재는 것은 권한 판정이지 속도 제한이 아니므로, 여기서만 상향한다.
     // (createTestApp 이 AppModule 을 동적 import 하므로 이 설정이 데코레이터에 반영된다)
     process.env.AUTH_RATE_LIMIT = '1000';
+    // ── board 모듈 기여 (D-2): PUBLIC 게시판·게시글은 resourceOwner 소유 —
+    // 각 역할 행은 "타인 글"에 대한 판정이 된다(owned 라우트는 전 행 deny 가 정상)
+    const board = await prisma.board.create({
+      data: {
+        tenant_id: TENANT, slug: `matrix-${uid()}`.slice(0, 40), name: '매트릭스 게시판',
+        created_by: resourceOwner.id,
+      },
+    });
+    boardId = board.id;
+    postId = (await prisma.post.create({
+      data: {
+        tenant_id: TENANT, board_id: board.id, owner_id: resourceOwner.id,
+        title: '매트릭스 글', body_md: 'b', body_html: '<p>b</p>',
+      },
+    })).id;
+    for (const row of MATRIX_ROWS) {
+      const rp = await prisma.post.create({
+        data: {
+          tenant_id: TENANT, board_id: board.id, owner_id: resourceOwner.id,
+          title: `매트릭스 삭제용 ${row}`, body_md: 'b', body_html: '<p>b</p>',
+        },
+      });
+      rowPosts[row] = rp.id;
+      rowComments[row] = (await prisma.comment.create({
+        data: {
+          tenant_id: TENANT, post_id: rp.id, owner_id: resourceOwner.id,
+          path: '0001', depth: 0, body_md: 'c', body_html: '<p>c</p>',
+        },
+      })).id;
+    }
+
     // 동결 대상은 어떤 행위자도 아닌 target — 자기 동결은 본인이 해제할 수 없으므로,
     // 행위자를 대상으로 두면 관계 규칙이 인가 판정을 가린다.
     freezeId = (await prisma.governanceFreeze.create({
@@ -296,6 +356,10 @@ describe('G-1 권한 매트릭스', () => {
     await app?.close();
     await prisma.$executeRaw`DELETE FROM audit.audit_logs WHERE tenant_id = ${TENANT}::uuid`;
     await prisma.resourceGrant.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.ownerCleanupJob.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.comment.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.post.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.board.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.fileUpload.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.governanceFreeze.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.domainVerificationAttempt.deleteMany({ where: { tenant_id: TENANT } });
@@ -324,13 +388,22 @@ describe('G-1 권한 매트릭스', () => {
           .replace('{rowFile}', rowFiles[actor.row])
           .replace('{file}', fileId)
           .replace('{rowDomain}', rowDomains[actor.row])
-          .replace('{domain}', domainId);
+          .replace('{domain}', domainId)
+          .replace('{board}', boardId)
+          .replace('{post}', postId)
+          .replace('{rowPost}', rowPosts[actor.row])
+          .replace('{rowComment}', rowComments[actor.row])
+          .replace('{grantSubject}', grantSubjectId);
         const body = JSON.parse(
           JSON.stringify(endpoint.body ?? {})
             .replace('{memberRole}', memberRoleId)
-            .replace('{target}', targetUserId),
+            .replace('{target}', targetUserId)
+            .replace('{grantSubject}', grantSubjectId),
         );
 
+        // 앞선 행의 부작용(비밀번호 변경 등의 pv 증가)이 이 행의 판정을 401 로 오염시키지
+        // 않도록, 매 판정 전에 현재 pv 로 토큰을 재발급한다(각 행 독립성 — 픽스처 주석 참조)
+        await refreshActorToken(prisma, tokenService, TENANT, actor);
         let req = request(app.getHttpServer())[endpoint.method](url);
         if (actor.authorization) req = req.set('Authorization', actor.authorization);
         if (endpoint.body) req = req.send(body);

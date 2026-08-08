@@ -400,6 +400,103 @@ model OwnerCleanupJob {
   @@map("owner_cleanup_jobs")
 }
 
+
+// ═══ board 모듈 기여 시작 (D-2 — 트랙 B 추출 시 이 블록이 모듈 스키마 조각이 된다) ═══
+//
+// 커널 모델(Tenant·User)에 역참조를 추가하지 않는다(OQ-2 권고) — Prisma 관계는 양방향
+// 선언을 요구해 커널 스키마 수정이 되므로, FK 는 마이그레이션 수기 SQL 로 건다.
+// CHECK·부분 인덱스·search_tsv(GENERATED)·updated_at 트리거도 수기 SQL(README 참조).
+// 시간 컬럼은 전부 DB now() — 클라이언트 Date 는 시간대가 어긋난다(OwnerCleanupJob 참조).
+
+model Board {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  slug       String    @db.VarChar(64)
+  name       String    @db.VarChar(120)
+  board_type String    @default("FORUM") @db.VarChar(32)
+  visibility String    @default("PUBLIC") @db.VarChar(16) // PUBLIC|RESTRICTED|PRIVATE — CHECK 수기
+  settings   Json      @default("{}")
+  status     String    @default("ACTIVE") @db.VarChar(16) // ACTIVE|ARCHIVED|DELETED — CHECK 수기
+  post_count BigInt    @default(0)
+  created_by String    @db.Uuid // 생성 관리자 — **소유자가 아니다**(§3.3, 서술자 owner 없음)
+  created_at DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
+  updated_at DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
+  deleted_at DateTime? @db.Timestamptz()
+
+  @@unique([tenant_id, slug])
+  @@map("boards")
+}
+
+model BoardMember {
+  board_id   String   @db.Uuid
+  user_id    String   @db.Uuid
+  board_role String   @default("MEMBER") @db.VarChar(16) // 표시·기본값 전용 — 인가 판정 금지(BINV-1)
+  joined_at  DateTime @default(dbgenerated("now()")) @db.Timestamptz()
+
+  @@id([board_id, user_id])
+  @@index([user_id])
+  @@map("board_members")
+}
+
+model BoardCapability {
+  board_id       String  @db.Uuid
+  capability_key String  @db.VarChar(48)
+  enabled        Boolean @default(true)
+  config         Json    @default("{}")
+
+  @@id([board_id, capability_key])
+  @@map("board_capabilities")
+}
+
+model Post {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id     String    @db.Uuid
+  board_id      String    @db.Uuid
+  owner_id      String    @db.Uuid
+  title         String    @db.VarChar(300)
+  body_md       String // 원본 마크다운(정본)
+  body_html     String // 서버 렌더·새니타이즈 캐시 — 표시는 이 컬럼만(§7)
+  status        String    @default("PUBLISHED") @db.VarChar(16) // DRAFT|PUBLISHED|HIDDEN|DELETED
+  is_pinned     Boolean   @default(false)
+  comment_count BigInt    @default(0)
+  created_at    DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
+  updated_at    DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
+  deleted_at    DateTime? @db.Timestamptz()
+  // search_tsv tsvector GENERATED — 수기 SQL (§8, Prisma 미표현)
+
+  @@index([board_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_posts_board_created_all")
+  @@map("posts")
+}
+
+model Comment {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  post_id    String    @db.Uuid
+  owner_id   String    @db.Uuid
+  parent_id  String?   @db.Uuid
+  path       String // materialized path: '0001.0007.0003' (§9)
+  depth      Int       @default(0) @db.SmallInt
+  body_md    String
+  body_html  String
+  status     String    @default("PUBLISHED") @db.VarChar(16) // PUBLISHED|HIDDEN|DELETED
+  created_at DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
+  updated_at DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
+  deleted_at DateTime? @db.Timestamptz()
+
+  @@index([post_id, path])
+  @@map("comments")
+}
+
+model PostAttachment {
+  post_id    String @db.Uuid
+  file_id    String @db.Uuid
+  sort_order Int    @default(0) @db.SmallInt
+
+  @@id([post_id, file_id])
+  @@map("post_attachments")
+}
+// ═══ board 모듈 기여 끝 ═══
+
 // 이메일 인증(AUTH-1)·비밀번호 재설정(AUTH-4) 토큰 — 해시만 저장, 1회용
 model VerificationToken {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

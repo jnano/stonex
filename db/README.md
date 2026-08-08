@@ -42,6 +42,11 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 | `email_change_requests` 부분 유니크 `uq_email_change_pending` (WHERE status='PENDING') | `20260808061023_email_change_requests` |
 | `email_change_requests.status` CHECK (PENDING\|CONFIRMED\|CANCELLED\|EXPIRED) | `20260808061023_email_change_requests` |
 | `system_settings` 값 형태 CHECK (비밀이면 value NULL, 아니면 secret_value NULL) | `20260808085951_system_settings` |
+| board 모듈 FK 전체 (커널 모델에 관계 미선언 — OQ-2) | `20260808150000_board_core_constraints` |
+| `boards.visibility`·`boards.status`·`posts.status`·`comments.status` CHECK | `20260808150000_board_core_constraints` |
+| `posts` 부분 인덱스 3종 (board_created·pinned·owner) + `comments` owner 부분 인덱스 | `20260808150000_board_core_constraints` |
+| `posts.search_tsv` GENERATED 컬럼 + GIN 인덱스 (§8) | `20260808150000_board_core_constraints` |
+| `board_touch_updated_at()` 트리거 3종 (updated_at 은 DB 가 관리) | `20260808150000_board_core_constraints` |
 
 ## 업로드 세션 (`file_uploads`)
 
