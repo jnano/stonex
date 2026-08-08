@@ -8,7 +8,12 @@ import { Banner, Card, Empty, Shell, s } from '../../../../lib/ui';
 
 /** 표시 깊이 상한 (§9.2) — 저장은 무제한, 표시만 접는다(R-B3 렌더 폭발 방지) */
 const MAX_DISPLAY_DEPTH = 3;
-const REACTION_KINDS = ['👍', '❤️', '😄'];
+/** 반응 종류 — 이모지는 저장 값, label 은 표시·풍선 도움말(title) 전용 */
+const REACTIONS: Array<{ kind: string; label: string }> = [
+  { kind: '👍', label: '좋아요' },
+  { kind: '❤️', label: '공감' },
+  { kind: '😄', label: '즐거움' },
+];
 
 /**
  * 글 읽기 (WP-B1~B3).
@@ -122,16 +127,24 @@ export default function PostPage() {
             </ul>
           )}
           <div style={{ ...s.row, marginTop: 14 }}>
-            <button onClick={reportPost} style={{ ...s.button, fontSize: 12 }}>🚩 신고</button>
-            {REACTION_KINDS.map((kind) => {
+            <button onClick={reportPost} title="이 글 신고" style={{ ...s.button, fontSize: 12 }}>
+              🚩 신고
+            </button>
+            {REACTIONS.map(({ kind, label }) => {
               const entry = reactions.find((r) => r.kind === kind);
+              const mine = entry?.mine === true;
               return (
                 <button
                   key={kind}
                   onClick={() => react(kind)}
+                  title={mine ? `${label} 취소` : label}
+                  aria-pressed={mine}
                   style={{
+                    // s.button 의 축약형 border 를 borderColor 로 덮으면 리렌더 때
+                    // React 가 "축약형/개별 속성 혼용" 경고를 낸다 — border 를 통째로 지정한다
                     ...s.button,
-                    ...(entry?.mine ? { background: '#eff6ff', borderColor: '#2563eb' } : {}),
+                    border: mine ? '1px solid #2563eb' : '1px solid #d1d5db',
+                    background: mine ? '#eff6ff' : '#fff',
                   }}
                 >
                   {kind} {entry?.count ?? 0}

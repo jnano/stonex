@@ -54,9 +54,23 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!res.ok) {
     // 401 은 pv 불일치(권한 회수)로도 발생한다 — 재로그인이 정상 흐름이다(§8.3)
     if (res.status === 401) setAccessToken(null);
-    const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    /**
+     * 서버 오류 사유를 그대로 보여준다 — 프론트가 사유를 지어내지 않는다.
+     *
+     * NestJS 기본 예외 형태는 `{ message, error, statusCode }` 이고, message 는
+     * 문자열이거나 (ValidationPipe) 문자열 배열이다. 기존 코드는 `error.message`
+     * (중첩 객체)만 읽어 **모든 서버 사유가 통째로 삼켜지고 있었다** — 신고 400 이
+     * "자기 글은 신고할 수 없습니다" 대신 "요청이 처리되지 않았습니다"로 보인 원인.
+     * 형태가 바뀌어도 견디도록 두 모양을 모두 받는다.
+     */
+    const body = (await res.json().catch(() => ({}))) as {
+      message?: string | string[];
+      error?: string | { message?: string };
+    };
+    const nested = typeof body.error === 'object' ? body.error?.message : undefined;
+    const direct = Array.isArray(body.message) ? body.message.join(', ') : body.message;
     // 상태 코드는 메시지에 넣지 않는다 — 화면이 따로 붙이므로 넣으면 "(404) (404)" 가 된다
-    throw new ApiError(res.status, body.error?.message ?? '요청이 처리되지 않았습니다.');
+    throw new ApiError(res.status, nested ?? direct ?? '요청이 처리되지 않았습니다.');
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

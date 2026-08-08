@@ -117,7 +117,13 @@ export const s: Record<string, CSSProperties> = {
   th: { textAlign: 'left', padding: '8px 6px', borderBottom: '2px solid #e5e7eb', fontWeight: 600, color: '#374151' },
   td: { padding: '8px 6px', borderBottom: '1px solid #f3f4f6', verticalAlign: 'top' },
   code: { display: 'block', background: '#f3f4f6', padding: '8px 10px', borderRadius: 6, wordBreak: 'break-all', fontSize: 12 },
-  tag: { fontSize: 12, padding: '1px 7px', borderRadius: 999, border: '1px solid #d1d5db' },
+  // border 를 축약형으로 두면 statusStyle 이 borderColor 만 덮을 때 React 가
+  // "축약형/개별 속성 혼용" 경고를 낸다(상태가 바뀌는 순찰·버전 화면에서 발생) —
+  // 개별 속성으로 분해해 두고 색만 갈아끼운다
+  tag: {
+    fontSize: 12, padding: '1px 7px', borderRadius: 999,
+    borderWidth: 1, borderStyle: 'solid', borderColor: '#d1d5db',
+  },
 };
 
 /** 상태 색 — '검사 실패'와 '이상 없음'을 눈으로 구분하기 위한 것(RT-20) */
