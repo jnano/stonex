@@ -80,6 +80,10 @@ jobs:
       STORAGE_ACCESS_KEY: stonex
       STORAGE_SECRET_KEY: stonex_dev_minio
       STORAGE_REGION: us-east-1
+      # 시드는 최초 SUPER_ADMIN 을 환경 변수로만 만든다(§13.1 하드코딩 금지).
+      # 격자 테스트가 db:seed 를 실행하므로 CI 에도 값이 필요하다 — 일회성 테스트 DB 전용 값이다.
+      SEED_SUPER_ADMIN_EMAIL: ci-admin@stonex.local
+      SEED_SUPER_ADMIN_PASSWORD: ci-only-throwaway-password-9f3a2c
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
