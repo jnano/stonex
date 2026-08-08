@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ApiError,
   endpoints,
+  errorText,
   type ActionView,
   type AnomalySignal,
   type FreezeSummary,
@@ -67,7 +67,7 @@ export default function GovernancePage() {
         setMessage('동결을 해제했습니다.');
       } catch (e) {
         // 피동결자 본인이거나 승인 정족수가 없으면 403 + 사유가 온다
-        setError(e instanceof ApiError ? `${e.message} (${e.status})` : '해제에 실패했습니다.');
+        setError(errorText(e, '해제에 실패했습니다.'));
       } finally {
         setBusy(false);
       }

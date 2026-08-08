@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import {
-  ApiError,
   endpoints,
+  errorText,
   type PermissionCatalogItem,
   type SimulationResult,
 } from '../../../lib/api';
@@ -68,7 +68,7 @@ export default function SimulatorPage() {
         );
       } catch (err) {
         // 비UUID·미등록 타입은 404 로 정규화된다 — 응답 형상이 존재 오라클이 되지 않도록
-        setError(err instanceof ApiError ? `${err.message} (${err.status})` : '질의에 실패했습니다.');
+        setError(errorText(err, '질의에 실패했습니다.'));
       } finally {
         setBusy(false);
       }

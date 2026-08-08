@@ -18,6 +18,17 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 오류 표시 문구를 한 곳에서 만든다.
+ *
+ * 화면마다 `${e.message} (${e.status})` 를 손으로 조립하면, 메시지에 이미 코드가 든 경우
+ * 중복 표기가 나고 화면마다 형식도 갈린다.
+ */
+export function errorText(e: unknown, fallback = '요청에 실패했습니다.'): string {
+  if (e instanceof ApiError) return `${e.message} (${e.status})`;
+  return fallback;
+}
+
 export function getAccessToken(): string | null {
   if (typeof window === 'undefined') return null;
   return window.localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -44,7 +55,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     // 401 은 pv 불일치(권한 회수)로도 발생한다 — 재로그인이 정상 흐름이다(§8.3)
     if (res.status === 401) setAccessToken(null);
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-    throw new ApiError(res.status, body.error?.message ?? `요청 실패 (${res.status})`);
+    // 상태 코드는 메시지에 넣지 않는다 — 화면이 따로 붙이므로 넣으면 "(404) (404)" 가 된다
+    throw new ApiError(res.status, body.error?.message ?? '요청이 처리되지 않았습니다.');
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

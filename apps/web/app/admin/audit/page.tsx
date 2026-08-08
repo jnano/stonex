@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ApiError, endpoints, type AuditEntryView } from '../../../lib/api';
+import { errorText, endpoints, type AuditEntryView } from '../../../lib/api';
 import { Banner, Card, Empty, Shell, s } from '../../../lib/ui';
 
 /** 기본 조회 창 — 7일. 파티션 프루닝이 의미를 가지려면 창이 유한해야 한다 */
@@ -45,7 +45,7 @@ export default function AuditPage() {
         setItems(res.items);
         setTotal(res.total);
       } catch (err) {
-        setError(err instanceof ApiError ? `${err.message} (${err.status})` : '조회에 실패했습니다.');
+        setError(errorText(err, '조회에 실패했습니다.'));
       } finally {
         setBusy(false);
       }

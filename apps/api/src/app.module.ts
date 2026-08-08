@@ -25,6 +25,7 @@ import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
 import { MembersService } from './members/members.service';
 import { EmailChangeService } from './members/email-change.service';
+import { MemberAnonymizationService } from './members/anonymization.service';
 import { RolesService } from './admin/roles.service';
 import { AuditQueryService } from './admin/audit-query.service';
 import { PermissionSimulatorService } from './admin/simulator.service';
@@ -49,7 +50,7 @@ import { TokenService } from './auth/token.service';
 import { TotpService } from './auth/totp.service';
 import { JwtTokenVerifier } from './auth/jwt-token-verifier';
 import { OnboardingGuard } from './auth/guards/onboarding.guard';
-import { ConsoleMailer, MAILER } from './auth/mailer';
+import { ConsoleMailer, MAILER, SmtpMailer } from './auth/mailer';
 import {
   BREACH_CHECKER,
   BreachChecker,
@@ -104,6 +105,7 @@ import {
     AuthService,
     MembersService,
     EmailChangeService,
+    MemberAnonymizationService,
     RolesService,
     AuditQueryService,
     PermissionSimulatorService,
@@ -124,7 +126,12 @@ import {
     // §13.2 미결(HTML 파일 방식 병행)이 결정되면 이 바인딩만 교체한다
     { provide: DNS_TXT_RESOLVER, useClass: NodeDnsTxtResolver },
     SuperAdminGuardService,
-    { provide: MAILER, useClass: ConsoleMailer },
+    /**
+     * 메일 발송 수단 (§13.2 결정).
+     * 기본은 로그 어댑터다 — 설정 없이 뜬 서버가 조용히 메일을 못 보내는 것보다,
+     * "발송하지 않는다"가 명시적인 편이 낫다. `MAIL_TRANSPORT=smtp` 로 실제 발송을 켠다.
+     */
+    { provide: MAILER, useClass: process.env.MAIL_TRANSPORT === 'smtp' ? SmtpMailer : ConsoleMailer },
     { provide: BREACH_CHECKER, useClass: HibpBreachChecker },
     {
       provide: PasswordService,

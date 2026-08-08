@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ApiError, endpoints } from '../../lib/api';
+import { errorText, endpoints } from '../../lib/api';
 import { useSession } from '../../lib/session';
 
 /**
@@ -45,7 +45,7 @@ export default function OnboardingPage() {
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '요청에 실패했습니다.');
+      setError(errorText(e, '요청에 실패했습니다.'));
     } finally {
       setBusy(false);
     }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, endpoints, type EmailChangeView } from '../../lib/api';
+import { errorText, endpoints, type EmailChangeView } from '../../lib/api';
 import { useSession } from '../../lib/session';
 
 /**
@@ -73,7 +73,7 @@ export default function AccountPage() {
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '요청에 실패했습니다.');
+      setError(errorText(e, '요청에 실패했습니다.'));
     } finally {
       setBusy(false);
     }

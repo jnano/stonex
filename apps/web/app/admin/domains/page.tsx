@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ApiError,
   endpoints,
+  errorText,
   type DomainSummary,
   type ShareSummary,
   type TransferSummary,
@@ -48,7 +48,7 @@ export default function DomainsPage() {
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof ApiError ? `${e.message} (${e.status})` : '요청에 실패했습니다.');
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }

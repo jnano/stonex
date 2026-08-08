@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ApiError, endpoints, type VersionView } from '../../../lib/api';
+import { errorText, endpoints, type VersionView } from '../../../lib/api';
 import { Banner, Card, Empty, Shell, s, statusStyle } from '../../../lib/ui';
 
 const COMPONENT_LABEL: Record<string, string> = {
@@ -39,7 +39,7 @@ export default function VersionPage() {
       .version()
       .then(setData)
       .catch((e: unknown) =>
-        setError(e instanceof ApiError ? `${e.message} (${e.status})` : '조회에 실패했습니다.'),
+        setError(errorText(e, '조회에 실패했습니다.')),
       );
   }, []);
 

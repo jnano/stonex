@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, endpoints, type FileSummary, type ShareSummary } from '../../../lib/api';
+import { errorText, endpoints, type FileSummary, type ShareSummary } from '../../../lib/api';
 import { useSession } from '../../../lib/session';
 import { Banner, Card, Empty, Shell, s } from '../../../lib/ui';
 
@@ -46,7 +46,7 @@ export default function FilesPage() {
       await fn();
     } catch (e) {
       // 서버가 돌려준 사유를 그대로 보여준다 — 404 는 존재 은닉일 수도 있다(§10.2)
-      setError(e instanceof ApiError ? `${e.message} (${e.status})` : '요청에 실패했습니다.');
+      setError(errorText(e, '요청에 실패했습니다.'));
     } finally {
       setBusy(false);
     }
