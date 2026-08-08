@@ -37,6 +37,7 @@ import { BoardCapabilitiesService, BoardTagsService, CommentReactionsService } f
 import { StorageService } from '../src/storage/storage.service';
 import { UploadSessionService } from '../src/storage/upload-session.service';
 import { SettingsService } from '../src/settings/settings.service';
+import { COMMENT_TOMBSTONE } from '../src/board/render';
 import { testRegistry } from './helpers/registry';
 
 jest.setTimeout(180_000);
@@ -282,6 +283,37 @@ describe('게시판 특화·거버넌스 (WP-B5, 실 DB)', () => {
     const forumPost = await posts.create(snapshot(author), forum.id, { title: 'f', bodyMd: 'x' });
     await expect(comments.create(snapshot(reader), forumPost.id, { bodyMd: 'ok' })).resolves.toBeDefined();
     await expect(reports.report(snapshot(reader), forumPost.id, '신고')).resolves.toEqual({ ok: true });
+  });
+
+  it('BRI-5: 붙들 자식이 없는 tombstone 을 순찰이 정리한다 — 조상 방향 연쇄까지', async () => {
+    const board = await makeBoard();
+    const post = await posts.create(snapshot(author), board.id, { title: 'p', bodyMd: 'x' });
+
+    // 정리 로직 이전에 생긴 고아를 재현한다: tombstone 2대 + 그 아래 자식은
+    // 이미 완전 삭제(본문 보존) 상태 — 삭제 사건이 없어 연쇄 정리가 촉발되지 않는다
+    const grand = await comments.create(snapshot(author), post.id, { bodyMd: '조부' });
+    const parent = await comments.create(snapshot(author), post.id, { bodyMd: '부', parentId: grand.id });
+    const child = await comments.create(snapshot(author), post.id, { bodyMd: '자', parentId: parent.id });
+    await prisma.comment.update({
+      where: { id: grand.id },
+      data: { status: 'DELETED', deleted_at: new Date(), body_html: COMMENT_TOMBSTONE, body_md: '' },
+    });
+    await prisma.comment.update({
+      where: { id: parent.id },
+      data: { status: 'DELETED', deleted_at: new Date(), body_html: COMMENT_TOMBSTONE, body_md: '' },
+    });
+    await prisma.comment.update({
+      where: { id: child.id },
+      data: { status: 'DELETED', deleted_at: new Date() }, // 본문 보존 = 목록에 안 보임
+    });
+    expect((await comments.list(snapshot(author), post.id)).length).toBe(2); // 고아 tombstone 2개
+
+    const results = await patrol.patrol();
+    // 한 번의 순찰로 조상까지 연쇄 정리된다(반복 패스)
+    expect(results.find((r) => r.id === 'BRI-5')).toMatchObject({ violations: 2, remediated: 2 });
+    expect(await comments.list(snapshot(author), post.id)).toEqual([]);
+    // 행 자체는 남는다 — 감사·path 무결성 보존
+    expect(await prisma.comment.count({ where: { post_id: post.id } })).toBe(3);
   });
 
   it('§12 BRI 순찰: 고아 첨부를 정리하고 카운터를 보정하며, 보정 불가 위반은 보고된다', async () => {

@@ -2,6 +2,10 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { GOVERNANCE_NOTIFIER, GovernanceNotifier } from '../governance/notifier';
+import { COMMENT_TOMBSTONE } from './render';
+
+/** SQL 파라미터로 넘길 tombstone 표식 — 렌더 모듈과 같은 출처(§15.1) */
+const TOMBSTONE_HTML = COMMENT_TOMBSTONE;
 
 export interface BriResult {
   id: string;
@@ -22,6 +26,7 @@ export interface BriResult {
  *  - BRI-2 카운터 정합: post_count·comment_count 재계산 대조 — 자동 보정(§4.1)
  *  - BRI-3 path 무결성: 부모 path 가 자식 path 의 프리픽스가 아니면 트리가 깨진 것 — 보고만
  *  - BRI-4 tenant 일치: 글·댓글의 tenant 가 게시판·글과 어긋나면 교차 테넌트 누수 — 보고만
+ *  - BRI-5 고아 tombstone: 붙들 자식이 없는 "삭제된 댓글" — 표식 제거(자동 보정)
  */
 @Injectable()
 export class BoardPatrolService {
@@ -93,6 +98,40 @@ export class BoardPatrolService {
       UNION ALL
       SELECT c.id FROM comments c JOIN posts p ON p.id = c.post_id WHERE c.tenant_id <> p.tenant_id`;
     results.push({ id: 'BRI-4', title: 'tenant 일치', violations: crossTenant.length, remediated: 0 });
+
+    /**
+     * BRI-5 — 고아 tombstone: 붙들 자식이 없는 "삭제된 댓글".
+     *
+     * tombstone 은 자식을 붙들어 두기 위해서만 존재하므로, 보이는 자식이 0이면 남을
+     * 이유가 없다. 삭제 경로가 연쇄 정리를 하지만(comments.service) 그 경로를 타지
+     * 않고 생기는 고아가 있다:
+     *  - 정리 로직 도입 **이전**에 삭제된 것 (사건이 없어 촉발되지 않음 — 실제 발생)
+     *  - 탈퇴 회원 정리 훅처럼 tombstone 규칙을 거치지 않는 일괄 삭제
+     * 한 번 짜고 마는 스크립트 대신 순찰이 스스로 치유하게 둔다.
+     *
+     * 부모가 고아여도 그 부모가 또 고아일 수 있어 **더 이상 줄지 않을 때까지** 반복한다
+     * (한 번만 돌면 조상 방향 연쇄가 한 단계씩만 풀린다).
+     */
+    let orphanTotal = 0;
+    for (let pass = 0; pass < 20; pass += 1) {
+      const orphans = await this.prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT t.id FROM comments t
+         WHERE t.deleted_at IS NOT NULL
+           AND t.body_html = ${TOMBSTONE_HTML}
+           AND NOT EXISTS (
+             SELECT 1 FROM comments c
+              WHERE c.parent_id = t.id
+                AND (c.deleted_at IS NULL OR c.body_html = ${TOMBSTONE_HTML})
+           )`;
+      if (orphans.length === 0) break;
+      await this.prisma.$executeRaw`
+        UPDATE comments SET body_html = '', body_md = ''
+         WHERE id = ANY(${orphans.map((r) => r.id)}::uuid[])`;
+      orphanTotal += orphans.length;
+    }
+    results.push({
+      id: 'BRI-5', title: '고아 tombstone', violations: orphanTotal, remediated: orphanTotal,
+    });
 
     for (const r of results.filter((x) => x.violations > 0 && x.remediated < x.violations)) {
       // 자동 보정 불가 위반은 조용히 쌓이지 않고 운영 채널로 드러난다
