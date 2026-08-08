@@ -91,7 +91,7 @@ describe('WP-14b L-2 동결 · 거버넌스 API (실 DB)', () => {
     notifier = new CollectingNotifier();
     freezes = new GovernanceFreezeService(p, audit);
     grants = new ResourceGrantService(audit, freezes, testRegistry(p));
-    const patrol = new GovernancePatrolService(p, audit, grants, new PrismaGrantStore(p), notifier);
+    const patrol = new GovernancePatrolService(p, audit, grants, new PrismaGrantStore(p), testRegistry(p), notifier);
     statusService = new GovernanceStatusService(p, patrol);
     anomalies = new AnomalyDetectionService(p, freezes, notifier);
 

@@ -6,26 +6,27 @@
 -- 주체(subject) 가 사라진 Grant 도 같은 이유로 포함한다.
 --
 -- `NOT IN (서브쿼리)` 는 NULL 하나에 조용히 0행이 되는 fail-open 을 만들므로 쓰지 않는다.
+--
+-- WP-K3: 리소스 테이블 접근은 타입별 WHEN 분기 하드코딩 대신
+-- RESOURCE_UNION 플레이스홀더 — 레지스트리가 등록된 타입 전체를
+-- (resource_type, id, owner_id, tenant_id, deleted_at) 로 정규화해 생성한다.
+-- 신규 타입은 서술자 등록만으로 이 검사에 자동 편입된다.
 -- 대응: L-1 (자동 회수, blast-radius 상한 적용)
 WITH ctx AS (SELECT $1::jsonb AS c),
 known AS (
   SELECT jsonb_array_elements_text(c -> 'knownResourceTypes') AS resource_type FROM ctx
 ),
+resources AS (
+  {{RESOURCE_UNION}}
+),
 target AS (
-  SELECT g.*,
-         CASE g.resource_type
-           WHEN 'file'   THEN (SELECT f.deleted_at IS NOT NULL FROM files f WHERE f.id = g.resource_id)
-           WHEN 'domain' THEN (SELECT d.deleted_at IS NOT NULL FROM domains d WHERE d.id = g.resource_id)
-         END AS resource_deleted,
-         CASE g.resource_type
-           WHEN 'file'   THEN EXISTS (SELECT 1 FROM files f WHERE f.id = g.resource_id)
-           WHEN 'domain' THEN EXISTS (SELECT 1 FROM domains d WHERE d.id = g.resource_id)
-         END AS resource_exists,
-         CASE g.resource_type
-           WHEN 'file'   THEN (SELECT u.deleted_at IS NOT NULL FROM files f JOIN users u ON u.id = f.owner_id WHERE f.id = g.resource_id)
-           WHEN 'domain' THEN (SELECT u.deleted_at IS NOT NULL FROM domains d JOIN users u ON u.id = d.owner_id WHERE d.id = g.resource_id)
-         END AS owner_deleted
+  SELECT g.id, g.resource_type, g.resource_id, g.subject_id,
+         r.id IS NOT NULL                            AS resource_exists,
+         COALESCE(r.deleted_at IS NOT NULL, false)   AS resource_deleted,
+         COALESCE(ou.deleted_at IS NOT NULL, false)  AS owner_deleted
     FROM resource_grants g
+    LEFT JOIN resources r ON r.resource_type = g.resource_type AND r.id = g.resource_id
+    LEFT JOIN users ou ON ou.id = r.owner_id
    WHERE EXISTS (SELECT 1 FROM known k WHERE k.resource_type = g.resource_type)
 )
 SELECT

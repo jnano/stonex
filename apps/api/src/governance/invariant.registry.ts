@@ -35,7 +35,7 @@ export const INVARIANTS: InvariantDef[] = [
   { id: 'RI-6', file: 'ri-6-system-roles.sql', severity: 'PAGE', title: '시스템 역할 변조' },
   { id: 'RI-7', file: 'ri-7-audit-hash-chain.sql', severity: 'L3', title: '감사 로그 해시 체인 불일치' },
   { id: 'RI-8', file: 'ri-8-grant-fossils.sql', severity: 'L3', title: '강등된 부여자의 권한 화석' },
-  // RI-9 는 WP-K3(고아 모듈 권한)에 예약되어 있다 — 번호가 순서를 건너뛰는 이유
+  { id: 'RI-9', file: 'ri-9-orphan-module-grants.sql', severity: 'L3', title: '고아 모듈 권한 (미등록 리소스 타입)' },
   { id: 'RI-10', file: 'ri-10-cleanup-backlog.sql', severity: 'L2', title: '소유자 정리 백로그 (퍼지 실패·정체)' },
 ];
 
@@ -45,6 +45,8 @@ export const KNOWN_RESOURCE_TYPES = Object.keys(GRANT_WHITELIST);
 export interface InvariantContext {
   grantWhitelist: Record<string, string[]>;
   knownResourceTypes: string[];
+  /** 코드가 실제로 등록한 리소스 타입(레지스트리) — 시드(known)와 어긋나면 RI-9 가 잡는다 */
+  registeredResourceTypes: string[];
   systemRoles: string[];
 }
 
@@ -52,10 +54,11 @@ export interface InvariantContext {
  * 불변식 SQL 에 주입할 컨텍스트. **정본은 시드 정의 하나뿐이다**(§15.1) —
  * SQL 안에 화이트리스트나 역할 코드를 하드코딩하면 시드가 바뀔 때 검사만 뒤처진다.
  */
-export function buildContext(): InvariantContext {
+export function buildContext(registeredResourceTypes: string[] = []): InvariantContext {
   return {
     grantWhitelist: GRANT_WHITELIST,
     knownResourceTypes: KNOWN_RESOURCE_TYPES,
+    registeredResourceTypes,
     systemRoles: ROLES.filter((r) => r.isSystem).map((r) => r.code),
   };
 }
@@ -79,6 +82,50 @@ export function assertContextUsable(ctx: InvariantContext): void {
   if (ctx.systemRoles.length === 0) {
     throw new Error('불변식 검사 불가: 시스템 역할 정의가 비어 있습니다(RI-6 fail-open).');
   }
+  if (ctx.registeredResourceTypes.length === 0) {
+    // 레지스트리가 비면 RI-9 가 모든 Grant 를 고아로 보고한다 — 반대 방향의 fail 이지만
+    // 원인은 같다(배선 누락). 검사 불가로 끊어 배선 문제를 드러낸다.
+    throw new Error('불변식 검사 불가: 리소스 타입 레지스트리가 비어 있습니다(RI-9 오작동).');
+  }
+}
+
+/** RESOURCE_UNION 치환에 필요한 서술자 부분집합 (ResourceTypeDescriptor 와 구조 호환) */
+export interface ResourceTableRef {
+  type: string;
+  table: string;
+  ownerColumn: string;
+  tenantColumn: string;
+  deletedAtColumn: string;
+}
+
+/**
+ * 등록된 리소스 타입 전체를 (resource_type, id, owner_id, tenant_id, deleted_at) 로
+ * 정규화하는 UNION 조각을 생성한다 (WP-K3).
+ *
+ * RI-4/5/8 은 리소스 테이블을 조인해야 하는데, 테이블명은 SQL 파라미터로 바인딩할 수 없어
+ * 기존에는 `WHEN 'file' THEN … FROM files` 분기가 SQL 에 박혀 있었다 — 신규 타입마다
+ * 불변식 SQL 을 고쳐야 하고, 고치지 않으면 그 타입은 **검사 없이 통과**한다(fail-open).
+ * 식별자는 레지스트리 등록 시 정규식 검증 + 부팅 시 스키마 대조를 통과한 값만 온다(RT-26).
+ */
+export function resourceUnionSql(types: ResourceTableRef[]): string {
+  if (types.length === 0) {
+    // UNION 조각이 비면 SQL 문법 오류가 난다 — 호출 전에 assertContextUsable 이 끊지만,
+    // 여기서도 명시적으로 막는다(방어 이중화)
+    throw new Error('리소스 타입 레지스트리가 비어 있어 불변식 SQL 을 만들 수 없습니다.');
+  }
+  return types
+    .map(
+      (t) =>
+        `SELECT '${t.type}' AS resource_type, id, ${t.ownerColumn} AS owner_id, ` +
+        `${t.tenantColumn} AS tenant_id, ${t.deletedAtColumn} AS deleted_at FROM ${t.table}`,
+    )
+    .join('\n  UNION ALL\n  ');
+}
+
+/** SQL 본문의 RESOURCE_UNION 플레이스홀더를 레지스트리 생성 조각으로 치환한다 */
+export function renderSql(sql: string, types: ResourceTableRef[]): string {
+  if (!sql.includes('{{RESOURCE_UNION}}')) return sql;
+  return sql.replaceAll('{{RESOURCE_UNION}}', resourceUnionSql(types));
 }
 
 const SQL_DIR = path.resolve(__dirname, '../../../../governance/invariants');
