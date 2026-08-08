@@ -51,11 +51,13 @@ export class BoardSearchService {
       Array<{
         id: string; board_id: string; owner_id: string; title: string;
         is_pinned: boolean; comment_count: bigint; view_count: bigint; status: string;
-        is_secret: boolean; created_at: Date;
+        is_secret: boolean; created_at: Date; owner_name: string;
       }>
     >`
-      SELECT p.id, p.board_id, p.owner_id, p.title, p.is_pinned, p.comment_count, p.view_count, p.status, p.is_secret, p.created_at
+      SELECT p.id, p.board_id, p.owner_id, p.title, p.is_pinned, p.comment_count, p.view_count, p.status,
+             p.is_secret, p.created_at, u.name AS owner_name
         FROM posts p
+        JOIN users u ON u.id = p.owner_id
        WHERE p.board_id = ${boardId}::uuid
          AND p.deleted_at IS NULL
          AND (p.status = 'PUBLISHED' OR (p.status = 'DRAFT' AND p.owner_id = ${subject.id}::uuid))
@@ -69,7 +71,7 @@ export class BoardSearchService {
        LIMIT ${Math.min(Math.max(limit, 1), 50)}`;
 
     return rows.map((p) => ({
-      id: p.id, boardId: p.board_id, ownerId: p.owner_id, title: p.title,
+      id: p.id, boardId: p.board_id, ownerId: p.owner_id, ownerName: p.owner_name, title: p.title,
       isPinned: p.is_pinned, commentCount: Number(p.comment_count), viewCount: Number(p.view_count),
       status: p.status, isSecret: p.is_secret, createdAt: p.created_at.toISOString(),
     }));

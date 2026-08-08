@@ -30,8 +30,7 @@ import { BoardAttachmentService } from '../src/board/board-attachment.service';
 import { BoardEventBus } from '../src/board/event-bus';
 import { BoardNotificationService } from '../src/board/notification.service';
 import {
-  BoardCapabilitiesService, BoardReactionsService, BoardTagsService,
-} from '../src/board/capabilities.service';
+  BoardCapabilitiesService, BoardReactionsService, BoardTagsService, CommentReactionsService } from '../src/board/capabilities.service';
 import { StorageService } from '../src/storage/storage.service';
 import { UploadSessionService } from '../src/storage/upload-session.service';
 import { SettingsService } from '../src/settings/settings.service';
@@ -87,7 +86,7 @@ describe('게시판 상호작용 (WP-B3, 실 DB)', () => {
       p, audit, boards, attachments, new BoardTagsService(p, capabilities), new ViewCountService(p),
       new PostPolicyService(p, new PrismaGrantStore(p)), capabilities, bus,
     );
-    comments = new CommentsService(p, audit, boards, bus, new PostPolicyService(p, new PrismaGrantStore(p)));
+    comments = new CommentsService(p, audit, boards, bus, new PostPolicyService(p, new PrismaGrantStore(p)), new CommentReactionsService(p, capabilities));
     reactions = new BoardReactionsService(p, audit, capabilities, bus);
 
     // 다른 스펙(실제 AppModule 을 띄우는 매트릭스 등)이 남긴 outbox·알림 잔재를 비운다 —
@@ -107,6 +106,7 @@ describe('게시판 상호작용 (WP-B3, 실 DB)', () => {
     await prisma.boardNotification.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.boardOutboxEvent.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.boardReaction.deleteMany({});
+    await prisma.commentReaction.deleteMany({});
     await prisma.boardTag.deleteMany({});
     await prisma.boardCapability.deleteMany({});
     await prisma.comment.deleteMany({ where: { tenant_id: TENANT } });
@@ -200,6 +200,65 @@ describe('게시판 상호작용 (WP-B3, 실 DB)', () => {
       title: 't', bodyMd: 'b', tags: ['공지', ' 공지 ', 'FAQ', 'faq'],
     });
     expect([...post.tags].sort()).toEqual(['faq', '공지'].sort());
+  });
+
+  it('WP-B6: 댓글 반응은 글 반응과 별도 표에 쌓이고 토글이 멱등하다', async () => {
+    const board = await makeBoard();
+    const post = await posts.create(snapshot(authorId), board.id, { title: 't', bodyMd: 'b' });
+    const comment = await comments.create(snapshot(commenterId), post.id, { bodyMd: 'c' });
+
+    expect(await comments.toggleReaction(snapshot(authorId), comment.id, '👍')).toEqual({ added: true });
+    const list = await comments.list(snapshot(authorId), post.id);
+    expect(list.find((c) => c.id === comment.id)?.reactions).toEqual([{ kind: '👍', count: 1, mine: true }]);
+    // 글 반응 표는 건드리지 않는다 — 별도 표를 쓴 결정의 실증
+    expect(await prisma.boardReaction.count({ where: { post_id: post.id } })).toBe(0);
+
+    expect(await comments.toggleReaction(snapshot(authorId), comment.id, '👍')).toEqual({ added: false });
+    const after = await comments.list(snapshot(authorId), post.id);
+    expect(after.find((c) => c.id === comment.id)?.reactions).toEqual([]);
+  });
+
+  it('WP-B6: 작성자 표시명·본인 원본이 실린다 — 남의 댓글 원본은 나가지 않는다', async () => {
+    const board = await makeBoard();
+    const post = await posts.create(snapshot(authorId), board.id, { title: 't', bodyMd: 'b' });
+    await comments.create(snapshot(commenterId), post.id, { bodyMd: '남의 댓글 원본' });
+
+    const asAuthor = await comments.list(snapshot(authorId), post.id);
+    expect(asAuthor[0].ownerName).not.toBe('');
+    // 수정 화면이 필요로 하는 최소 노출 — 남의 원본은 실리지 않는다
+    expect(asAuthor[0].bodyMd).toBeUndefined();
+
+    const asOwner = await comments.list(snapshot(commenterId), post.id);
+    expect(asOwner[0].bodyMd).toBe('남의 댓글 원본');
+  });
+
+  it('WP-B6: 운영 행위 — 고정·숨김·이동. 숨김은 삭제가 아니고 카운터가 따라 움직인다', async () => {
+    const from = await makeBoard();
+    const to = await makeBoard();
+    // 운영자 스냅샷 — MEMBER 권한 + board.moderate.all
+    const moderator = {
+      id: authorId, tenantId: TENANT, status: 'ACTIVE', roles: ['OPERATOR'], pv: 1,
+      permissions: new Map(
+        [...MEMBER_CODES, 'board.moderate.all'].map((c) => [c, { scope: 'global' }]),
+      ),
+    } as unknown as SubjectSnapshot;
+    const post = await posts.create(snapshot(authorId), from.id, { title: 't', bodyMd: 'b' });
+
+    const pinned = await posts.moderate(moderator, post.id, { pin: true });
+    expect(pinned.isPinned).toBe(true);
+
+    await posts.moderate(moderator, post.id, { hide: true });
+    const hidden = await prisma.post.findUniqueOrThrow({ where: { id: post.id } });
+    expect(hidden.status).toBe('HIDDEN');
+    expect(hidden.deleted_at).toBeNull(); // 숨김은 삭제가 아니다 — 되돌릴 수 있다
+    expect(Number((await prisma.board.findUniqueOrThrow({ where: { id: from.id } })).post_count)).toBe(0);
+
+    await posts.moderate(moderator, post.id, { hide: false });
+    await posts.moderate(moderator, post.id, { moveToBoardId: to.id });
+    expect((await prisma.post.findUniqueOrThrow({ where: { id: post.id } })).board_id).toBe(to.id);
+    // 카운터가 두 게시판 사이에서 옮겨간다(§4.1)
+    expect(Number((await prisma.board.findUniqueOrThrow({ where: { id: from.id } })).post_count)).toBe(0);
+    expect(Number((await prisma.board.findUniqueOrThrow({ where: { id: to.id } })).post_count)).toBe(1);
   });
 
   it('키셋 페이징: 중복·누락 없이 순회하고, 고정글은 첫 페이지에만 실린다 (§8.2)', async () => {

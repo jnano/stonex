@@ -98,6 +98,62 @@ export class BoardReactionsService {
   }
 }
 
+/**
+ * 댓글 반응 (WP-B6) — 글 반응과 **별도 표**를 쓴다(기존 board_reactions 무변경).
+ * 같은 `reaction` 기능모듈 토글을 따르며, 토글 멱등도 동일하다.
+ */
+@Injectable()
+export class CommentReactionsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly capabilities: BoardCapabilitiesService,
+  ) {}
+
+  async toggle(
+    subject: SubjectSnapshot,
+    comment: { id: string; post_id: string },
+    boardId: string,
+    kind: string,
+  ): Promise<{ added: boolean }> {
+    await this.capabilities.assertEnabled(boardId, 'reaction');
+    const key = { comment_id: comment.id, user_id: subject.id, kind };
+    const existing = await this.prisma.commentReaction.findUnique({
+      where: { comment_id_user_id_kind: key },
+    });
+    if (existing) {
+      await this.prisma.commentReaction.delete({ where: { comment_id_user_id_kind: key } });
+      return { added: false };
+    }
+    await this.prisma.commentReaction.create({ data: key });
+    return { added: true };
+  }
+
+  /** 게시글의 전체 댓글 반응을 한 번에 — 댓글 목록의 N+1 을 막는다 */
+  async summaryForPost(
+    postId: string,
+    viewerId: string,
+  ): Promise<Map<string, ReactionSummary[]>> {
+    const rows = await this.prisma.commentReaction.findMany({
+      where: { comment: { post_id: postId } },
+    });
+    const byComment = new Map<string, Map<string, { count: number; mine: boolean }>>();
+    for (const r of rows) {
+      const kinds = byComment.get(r.comment_id) ?? new Map();
+      const entry = kinds.get(r.kind) ?? { count: 0, mine: false };
+      entry.count += 1;
+      if (r.user_id === viewerId) entry.mine = true;
+      kinds.set(r.kind, entry);
+      byComment.set(r.comment_id, kinds);
+    }
+    return new Map(
+      [...byComment.entries()].map(([commentId, kinds]) => [
+        commentId,
+        [...kinds.entries()].map(([kind, v]) => ({ kind, ...v })),
+      ]),
+    );
+  }
+}
+
 /** 태그 기능모듈 (§6.4) — 글 작성·수정 시 함께 저장, 목록·상세에 표시 */
 @Injectable()
 export class BoardTagsService {

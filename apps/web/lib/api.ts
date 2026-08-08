@@ -334,6 +334,7 @@ export interface PostSummary {
   status: string;
   isSecret: boolean;
   createdAt: string;
+  ownerName: string;
 }
 
 export interface ReportView {
@@ -358,6 +359,8 @@ export interface Attachment {
   name: string;
   sizeBytes: number;
   mimeType: string;
+  /** 표시·다운로드용 서명 URL (만료 있음) — 이미지는 inline, 그 외는 다운로드 */
+  url?: string;
 }
 
 export interface PostDetail extends PostSummary {
@@ -372,11 +375,15 @@ export interface CommentView {
   id: string;
   postId: string;
   ownerId: string;
+  ownerName: string;
   parentId: string | null;
   depth: number;
   bodyHtml: string;
+  /** 본인 댓글에만 실린다 — 수정 화면용 원본 */
+  bodyMd?: string;
   status: string;
   createdAt: string;
+  reactions: Array<{ kind: string; count: number; mine: boolean }>;
 }
 // ── board 모듈 기여 끝 ──
 
@@ -472,6 +479,18 @@ export const endpoints = {
       method: 'POST', body: JSON.stringify({ uphold }),
     }),
   boardPatrol: () => api<BriResult[]>('/admin/board/patrol'),
+  deletePost: (id: string) => api<{ ok: true }>(`/posts/${id}`, { method: 'DELETE' }),
+  updateComment: (id: string, bodyMd: string) =>
+    api<CommentView>(`/comments/${id}`, { method: 'PATCH', body: JSON.stringify({ bodyMd }) }),
+  deleteComment: (id: string) => api<{ ok: true }>(`/comments/${id}`, { method: 'DELETE' }),
+  toggleCommentReaction: (id: string, kind: string) =>
+    api<{ added: boolean }>(`/comments/${id}/reactions`, { method: 'POST', body: JSON.stringify({ kind }) }),
+  /** 운영 행위 — 게시판 위임(board.moderate) 경로 */
+  moderatePost: (id: string, body: { pin?: boolean; hide?: boolean; moveToBoardId?: string }) =>
+    api<PostSummary>(`/posts/${id}/moderate`, { method: 'POST', body: JSON.stringify(body) }),
+  /** 운영 행위 — 전체 권한(board.moderate.all) 경로. 라우트 분리(§7.3) */
+  moderatePostAsAdmin: (id: string, body: { pin?: boolean; hide?: boolean; moveToBoardId?: string }) =>
+    api<PostSummary>(`/admin/board/posts/${id}/moderate`, { method: 'POST', body: JSON.stringify(body) }),
 
   files: (page = 1) => api<{ items: FileSummary[]; total: number }>(`/files?page=${page}`),
   file: (id: string) => api<FileSummary>(`/files/${id}`),

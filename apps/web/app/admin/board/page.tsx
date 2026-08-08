@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   endpoints, errorText, type BoardSummary, type BriResult, type ReportView,
 } from '../../../lib/api';
@@ -17,7 +18,19 @@ const VISIBILITIES = ['PUBLIC', 'RESTRICTED', 'PRIVATE'];
  * 특화 게시판은 **프리셋 + 설정 + 기능모듈 토글**로 만든다 — 코드 재배포가 없다(§5).
  * 신고 처리(R-B15): 자동 발동은 임시 숨김까지이며, 삭제·복구는 여기서의 명시적 결정이다.
  */
-export default function AdminBoardPage() {
+export default function AdminBoardPageWrapper() {
+  // useSearchParams 는 Suspense 경계를 요구한다(Next App Router)
+  return (
+    <Suspense fallback={<Shell title="게시판 관리">불러오는 중…</Shell>}>
+      <AdminBoardPage />
+    </Suspense>
+  );
+}
+
+function AdminBoardPage() {
+  const searchParams = useSearchParams();
+  // 글 읽기 화면의 "이동" 링크가 ?move=<postId> 로 들어온다 — 대상 게시판만 고르면 된다
+  const movePostId = searchParams.get('move');
   const [boardList, setBoardList] = useState<BoardSummary[]>([]);
   const [reports, setReports] = useState<ReportView[]>([]);
   const [patrol, setPatrol] = useState<BriResult[]>([]);
@@ -89,6 +102,33 @@ export default function AdminBoardPage() {
   return (
     <Shell title="게시판 관리">
       <Banner error={error} message={message} />
+
+      {movePostId && (
+        <Card title="글 이동">
+          <p style={s.muted}>
+            선택한 글을 다른 게시판으로 옮깁니다. 이동해도 삭제가 아니며 감사에 남습니다.
+          </p>
+          <div style={s.row}>
+            {boardList.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => {
+                  void endpoints
+                    .moderatePostAsAdmin(movePostId, { moveToBoardId: b.id })
+                    .then(() => setMessage(`"${b.name}" 게시판으로 옮겼습니다.`))
+                    .catch((e) => setError(errorText(e, '이동하지 못했습니다.')));
+                }}
+                style={s.button}
+              >
+                {b.name}
+              </button>
+            ))}
+          </div>
+          <p style={{ ...s.muted, fontSize: 12, marginTop: 8 }}>
+            <Link href={`/board`}>게시판 목록으로</Link>
+          </p>
+        </Card>
+      )}
 
       <Card title="게시판 만들기 (프리셋 — 재배포 없는 특화)">
         <div style={{ ...s.row }}>

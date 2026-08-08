@@ -18,6 +18,8 @@ export interface PostSummary {
   id: string;
   boardId: string;
   ownerId: string;
+  /** 작성자 표시명 — 이메일은 싣지 않는다(§10.2 최소 노출). 탈퇴자는 익명화 이름이 온다 */
+  ownerName: string;
   title: string;
   isPinned: boolean;
   commentCount: number;
@@ -35,15 +37,17 @@ export interface PostDetail extends PostSummary {
   tags: string[];
 }
 
-const toSummary = (p: Post): PostSummary => ({
-  id: p.id, boardId: p.board_id, ownerId: p.owner_id, title: p.title,
+const toSummary = (p: Post, ownerName = ''): PostSummary => ({
+  id: p.id, boardId: p.board_id, ownerId: p.owner_id, ownerName, title: p.title,
   isPinned: p.is_pinned, commentCount: Number(p.comment_count), viewCount: Number(p.view_count),
   status: p.status, isSecret: p.is_secret, createdAt: p.created_at.toISOString(),
 });
 
-const toDetail = (p: Post, attachments: AttachmentResult[] = [], tags: string[] = []): PostDetail => ({
-  ...toSummary(p), bodyHtml: p.body_html, bodyMd: p.body_md, updatedAt: p.updated_at.toISOString(),
-  attachments, tags,
+const toDetail = (
+  p: Post, attachments: AttachmentResult[] = [], tags: string[] = [], ownerName = '',
+): PostDetail => ({
+  ...toSummary(p, ownerName), bodyHtml: p.body_html, bodyMd: p.body_md,
+  updatedAt: p.updated_at.toISOString(), attachments, tags,
 });
 
 /**
@@ -156,12 +160,24 @@ export class PostsService {
     const byId = new Map(loaded.map((r) => [r.id, r]));
     const pageRows = pageIds.map((id) => byId.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
     const last = pageIds[pageIds.length - 1];
+    const all = [...pinned, ...pageRows];
+    const names = await this.ownerNames(all.map((r) => r.owner_id));
     return {
-      items: [...pinned.map(toSummary), ...pageRows.map(toSummary)],
+      items: all.map((r) => toSummary(r, names.get(r.owner_id) ?? '(알 수 없음)')),
       nextCursor: hasMore && last ? encodeCursor(last) : null,
     };
   }
 
+
+  /** 작성자 표시명 일괄 조회 — 목록의 N+1 을 막는다(id → name) */
+  private async ownerNames(ownerIds: string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(ownerIds)];
+    if (unique.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: unique } }, select: { id: true, name: true },
+    });
+    return new Map(users.map((u) => [u.id, u.name]));
+  }
 
   /** 이 게시판에서 글을 가진 탈퇴자 id — 고정글 쿼리용(키셋 본문은 raw NOT EXISTS 로 거른다) */
   private async deletedOwnerIdsFor(boardId: string): Promise<string[]> {
@@ -182,7 +198,11 @@ export class PostsService {
     // 비밀글(§6.5): 숨김은 노출에 우선 — 판정 실패는 403 이 아니라 404(존재 은닉)
     if (!(await this.policy.canReadPost(subject, post))) throw new NotFoundException();
     this.views.bump(post.id); // 조회수 — 요청 경로 I/O 없음(버퍼, WP-B4)
-    return toDetail(post, await this.attachments.listForPost(post.id), await this.tags.listForPost(post.id));
+    const names = await this.ownerNames([post.owner_id]);
+    return toDetail(
+      post, await this.attachments.listForPost(post.id), await this.tags.listForPost(post.id),
+      names.get(post.owner_id) ?? '(알 수 없음)',
+    );
   }
 
   async create(
@@ -245,7 +265,11 @@ export class PostsService {
       });
       return created;
     });
-    return toDetail(post, await this.attachments.listForPost(post.id), await this.tags.listForPost(post.id));
+    const createdNames = await this.ownerNames([post.owner_id]);
+    return toDetail(
+      post, await this.attachments.listForPost(post.id), await this.tags.listForPost(post.id),
+      createdNames.get(post.owner_id) ?? '',
+    );
   }
 
   /**
@@ -289,7 +313,11 @@ export class PostsService {
       });
       return next;
     });
-    return toDetail(updated, await this.attachments.listForPost(postId), await this.tags.listForPost(postId));
+    const updatedNames = await this.ownerNames([updated.owner_id]);
+    return toDetail(
+      updated, await this.attachments.listForPost(postId), await this.tags.listForPost(postId),
+      updatedNames.get(updated.owner_id) ?? '',
+    );
   }
 
   /** 공동작성자 지정 (§6.5) — **원작성자만** 바꿀 수 있다. owner_id 는 불변(R-B12) */
@@ -333,6 +361,79 @@ export class PostsService {
         detail: { before: { status: post.status, ownerId: post.owner_id }, after: { status: 'DELETED' } },
       });
     });
+  }
+
+  /**
+   * 운영 행위 (스펙 §10.1 `moderate/*`) — 고정·이동·숨김/해제.
+   *
+   * 게이트는 컨트롤러의 `board.moderate`(게시판 Grant) 또는 `board.moderate.all`.
+   * 셋 다 **소프트한 표시 변경**이다 — 삭제가 아니므로 되돌릴 수 있고, 전부 감사에 남는다.
+   * 숨김(HIDDEN)은 신고 자동 발동(R-B15)과 같은 상태를 쓴다 — 운영자 수동/자동의
+   * 차이는 감사 action 으로 구분하고 상태는 하나로 유지한다(상태가 둘이면 복구 경로가 갈린다).
+   */
+  async moderate(
+    subject: SubjectSnapshot,
+    postId: string,
+    action: { pin?: boolean; hide?: boolean; moveToBoardId?: string },
+  ): Promise<PostSummary> {
+    const post = await this.prisma.post.findUnique({ where: { id: postId } });
+    if (!post || post.deleted_at || post.tenant_id !== subject.tenantId) throw new NotFoundException();
+
+    if (action.moveToBoardId) {
+      // 이동 대상 게시판도 접근·쓰기 가능해야 한다 — 안 보이는 게시판으로 밀어 넣어
+      // 글을 사실상 소각하는 경로를 막는다
+      await this.boards.loadAccessible(subject, action.moveToBoardId, { write: true });
+    }
+
+    const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const next = await tx.post.update({
+        where: { id: postId },
+        data: {
+          ...(action.pin !== undefined ? { is_pinned: action.pin } : {}),
+          ...(action.hide !== undefined
+            ? { status: action.hide ? 'HIDDEN' : 'PUBLISHED' }
+            : {}),
+          ...(action.moveToBoardId ? { board_id: action.moveToBoardId } : {}),
+        },
+      });
+      // 카운터는 게시판 소속·공개 상태가 바뀔 때 함께 움직인다(§4.1)
+      const wasCounted = post.status === 'PUBLISHED';
+      const isCounted = next.status === 'PUBLISHED';
+      if (action.moveToBoardId && action.moveToBoardId !== post.board_id) {
+        if (wasCounted) {
+          await tx.board.update({ where: { id: post.board_id }, data: { post_count: { decrement: 1 } } });
+        }
+        if (isCounted) {
+          await tx.board.update({ where: { id: action.moveToBoardId }, data: { post_count: { increment: 1 } } });
+        }
+      } else if (wasCounted !== isCounted) {
+        await tx.board.update({
+          where: { id: post.board_id },
+          data: { post_count: isCounted ? { increment: 1 } : { decrement: 1 } },
+        });
+      }
+      await this.audit.record(tx, {
+        tenantId: subject.tenantId, actorId: subject.id, action: 'post.moderate',
+        targetType: 'post', targetId: postId,
+        detail: {
+          before: { status: post.status, isPinned: post.is_pinned, boardId: post.board_id },
+          after: { status: next.status, isPinned: next.is_pinned, boardId: next.board_id },
+        },
+      });
+      return next;
+    });
+    const names = await this.ownerNames([updated.owner_id]);
+    return toSummary(updated, names.get(updated.owner_id) ?? '');
+  }
+
+  /** 운영자가 볼 수 있는 숨김 글 상세 — 일반 상세는 HIDDEN 을 404 로 가린다 */
+  async detailForModerator(subject: SubjectSnapshot, postId: string): Promise<PostDetail> {
+    const post = await this.loadForAdmin(subject, postId);
+    const names = await this.ownerNames([post.owner_id]);
+    return toDetail(
+      post, await this.attachments.listForPost(post.id), await this.tags.listForPost(post.id),
+      names.get(post.owner_id) ?? '',
+    );
   }
 
   /** 관리자 삭제 전 존재 확인 — .all 경로는 리소스형 게이트가 아니라서 서비스가 로드한다 */

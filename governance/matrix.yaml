@@ -587,6 +587,34 @@ matrix:
     DOMAIN_MANAGER: deny
     OPERATOR: deny
     SUPER_ADMIN: deny
+  "POST /posts/:id/moderate":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "POST /comments/:id/reactions":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "POST /admin/board/posts/:id/moderate":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /admin/board/posts/:id":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
   "POST /posts/:id/report":
     anonymous: deny
     MEMBER: allow

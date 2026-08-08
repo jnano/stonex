@@ -13,6 +13,9 @@ export interface AttachmentResult {
   name: string;
   sizeBytes: number;
   mimeType: string;
+  /** 표시·다운로드용 서명 URL (만료 있음). 이미지는 inline, 그 외는 attachment.
+   *  storage_key 는 응답에 싣지 않는다(§10.2) — URL 만 나간다 */
+  url?: string;
 }
 
 /** 글당 첨부 상한 — 무제한이면 첨부가 저장 공간 공격 벡터가 된다 */
@@ -129,7 +132,12 @@ export class BoardAttachmentService {
     });
   }
 
-  /** 글의 첨부 목록 — 다운로드는 코어 파일 API(서명 URL) 경유 */
+  /**
+   * 글의 첨부 목록 — **표시용 서명 URL 을 함께 준다**(WP-B6).
+   *
+   * 이전에는 이름·크기만 줘서 화면이 첨부를 클릭해도 아무 일이 없었다. 이미지는
+   * inline URL 로 본문에 바로 띄우고, 그 외는 다운로드 URL 을 건다.
+   */
   async listForPost(postId: string): Promise<AttachmentResult[]> {
     const links = await this.prisma.postAttachment.findMany({
       where: { post_id: postId },
@@ -140,9 +148,19 @@ export class BoardAttachmentService {
       where: { id: { in: links.map((l) => l.file_id) }, deleted_at: null },
     });
     const byId = new Map(files.map((f) => [f.id, f]));
-    return links
+    const ordered = links
       .map((l) => byId.get(l.file_id))
-      .filter((f): f is NonNullable<typeof f> => f !== undefined)
-      .map((f) => ({ fileId: f.id, name: f.name, sizeBytes: Number(f.size_bytes), mimeType: f.mime_type }));
+      .filter((f): f is NonNullable<typeof f> => f !== undefined);
+    return Promise.all(
+      ordered.map(async (f) => ({
+        fileId: f.id,
+        name: f.name,
+        sizeBytes: Number(f.size_bytes),
+        mimeType: f.mime_type,
+        url: isImageMime(f.mime_type)
+          ? await this.storage.createInlineUrl({ storageKey: f.storage_key, contentType: f.mime_type })
+          : await this.storage.createDownloadUrl({ storageKey: f.storage_key, fileName: f.name }),
+      })),
+    );
   }
 }

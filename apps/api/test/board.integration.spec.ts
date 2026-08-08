@@ -32,7 +32,7 @@ import { SettingsService } from '../src/settings/settings.service';
 import { CommentsService } from '../src/board/comments.service';
 import { BoardOwnerCleanupHook } from '../src/board/board.cleanup';
 import { BoardEventBus } from '../src/board/event-bus';
-import { BoardCapabilitiesService, BoardTagsService } from '../src/board/capabilities.service';
+import { BoardCapabilitiesService, BoardTagsService, CommentReactionsService } from '../src/board/capabilities.service';
 import { OwnerCleanupRegistry } from '../src/authorization/owner-cleanup';
 import { OwnerCleanupWorker } from '../src/members/owner-cleanup.worker';
 import { COMMENT_TOMBSTONE } from '../src/board/render';
@@ -90,7 +90,7 @@ describe('게시판 코어 (WP-B1, 실 DB)', () => {
       p, audit, boards, attachments, new BoardTagsService(p, caps), new ViewCountService(p),
       new PostPolicyService(p, new PrismaGrantStore(p)), caps, new BoardEventBus(p),
     );
-    comments = new CommentsService(p, audit, boards, new BoardEventBus(p), new PostPolicyService(p, new PrismaGrantStore(p)));
+    comments = new CommentsService(p, audit, boards, new BoardEventBus(p), new PostPolicyService(p, new PrismaGrantStore(p)), new CommentReactionsService(p, new BoardCapabilitiesService(p)));
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'board-test' } });
     for (const code of [...MEMBER_CODES, 'board.moderate', 'board.moderate.all', 'board.manage']) {

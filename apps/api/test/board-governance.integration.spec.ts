@@ -33,7 +33,7 @@ import { BoardSearchService } from '../src/board/search.service';
 import { BoardReportsService } from '../src/board/reports.service';
 import { BoardPatrolService } from '../src/board/board-patrol.service';
 import { ViewCountService } from '../src/board/view-count.service';
-import { BoardCapabilitiesService, BoardTagsService } from '../src/board/capabilities.service';
+import { BoardCapabilitiesService, BoardTagsService, CommentReactionsService } from '../src/board/capabilities.service';
 import { StorageService } from '../src/storage/storage.service';
 import { UploadSessionService } from '../src/storage/upload-session.service';
 import { SettingsService } from '../src/settings/settings.service';
@@ -105,7 +105,7 @@ describe('게시판 특화·거버넌스 (WP-B5, 실 DB)', () => {
       p, audit, boards, attachments, new BoardTagsService(p, capabilities), new ViewCountService(p),
       postPolicy, capabilities, bus,
     );
-    comments = new CommentsService(p, audit, boards, bus, postPolicy);
+    comments = new CommentsService(p, audit, boards, bus, postPolicy, new CommentReactionsService(p, capabilities));
     search = new BoardSearchService(p, boards, postPolicy);
     reports = new BoardReportsService(p, audit, capabilities);
     notifier = new CollectingNotifier();
