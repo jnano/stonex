@@ -1,4 +1,10 @@
-import { BadRequestException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { Prisma } from '@stonex/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { RoleGrantService } from '../authorization/role-grant.service';
@@ -6,6 +12,11 @@ import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
 import { TotpService } from './totp.service';
 import { MAILER, Mailer } from './mailer';
+import { RedisService } from '../cache/redis.service';
+
+/** 재등록 미확정 시크릿의 수명 — 확인을 끝내지 않으면 저절로 사라진다 */
+const TOTP_REENROLL_TTL_SEC = Number(process.env.TOTP_REENROLL_TTL_SEC ?? 600);
+const pendingTotpKey = (userId: string): string => `totp:pending:${userId}`;
 
 const MAX_FAILED_LOGINS = 5; // AUTH-2
 const LOCK_MINUTES = 15;
@@ -31,6 +42,7 @@ export class AuthService {
     private readonly tokens: TokenService,
     private readonly totp: TotpService,
     @Inject(MAILER) private readonly mailer: Mailer,
+    private readonly redis: RedisService,
   ) {}
 
   // ── AUTH-1 회원가입 ────────────────────────────────────────────
@@ -280,9 +292,21 @@ export class AuthService {
     };
   }
 
-  /** TOTP 등록 시작 — 시크릿 발급(아직 플래그는 해제하지 않는다) */
+  /**
+   * TOTP **최초 등록** 시작 — 온보딩 전용 (CR-1).
+   *
+   * 이 경로는 `totp_enrollment_required=true` 인 세션에서만 열린다. 등록을 마친 계정까지
+   * 열어두면 **세션을 탈취한 공격자가 피해자의 2차 인증기를 자기 것으로 교체**할 수 있어
+   * 2FA 의 존재 이유가 정확히 무력화된다(Phase 1 코드 리뷰 CR-1).
+   * 사후 재등록은 재인증을 요구하는 `beginTotpReenrollment` 로 분리했다.
+   */
   async beginTotpEnrollment(userId: string): Promise<{ keyUri: string }> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (!user.totp_enrollment_required) {
+      throw new ForbiddenException(
+        '이미 2차 인증이 등록된 계정입니다. 재등록은 재인증이 필요합니다(POST /auth/2fa/reenroll).',
+      );
+    }
     const secret = this.totp.generateSecret();
     await this.prisma.user.update({ where: { id: userId }, data: { totp_secret: secret } });
     return { keyUri: this.totp.keyUri(user.email, secret) };
@@ -298,5 +322,49 @@ export class AuthService {
       where: { id: userId },
       data: { totp_enrollment_required: false },
     });
+  }
+
+  // ── 2FA 재등록 (step-up 필요) — CR-1 ──────────────────────────
+  /**
+   * 재등록 시작. **현재 TOTP 코드 또는 비밀번호로 재인증(step-up)** 을 통과해야 한다.
+   *
+   * 새 시크릿을 `users.totp_secret` 에 즉시 쓰지 않고 **Redis 에 미확정 상태로 보관**한다.
+   * 즉시 덮어쓰면 확인을 끝내지 않은 것만으로 피해자의 기존 인증기가 무효가 되어,
+   * step-up 을 통과한 공격자가 "확인하지 않는 것"만으로 계정을 잠글 수 있다.
+   * (users 테이블에 컬럼을 더하지 않는 이유이기도 하다 — INV-7)
+   */
+  async beginTotpReenrollment(
+    userId: string,
+    stepUp: { code?: string; password?: string },
+  ): Promise<{ keyUri: string }> {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (user.totp_enrollment_required || !user.totp_secret) {
+      throw new BadRequestException('아직 최초 등록을 마치지 않은 계정입니다.');
+    }
+
+    const byCode = stepUp.code ? this.totp.verify(user.totp_secret, stepUp.code) : false;
+    const byPassword = stepUp.password
+      ? await this.passwords.verify(user.password_hash, stepUp.password)
+      : false;
+    if (!byCode && !byPassword) {
+      // 어느 요소가 틀렸는지 구분해 알리지 않는다 — 유효한 요소를 좁혀주는 오라클이 된다
+      throw new UnauthorizedException('재인증에 실패했습니다.');
+    }
+
+    const secret = this.totp.generateSecret();
+    await this.redis.setEx(pendingTotpKey(userId), TOTP_REENROLL_TTL_SEC, secret);
+    return { keyUri: this.totp.keyUri(user.email, secret) };
+  }
+
+  /** 재등록 확인 — 미확정 시크릿으로 검증에 성공한 뒤에야 실제 시크릿을 교체한다 */
+  async confirmTotpReenrollment(userId: string, code: string): Promise<void> {
+    const pending = await this.redis.get(pendingTotpKey(userId));
+    if (!pending) {
+      throw new BadRequestException('재등록 요청이 없거나 만료되었습니다. 처음부터 다시 시도하세요.');
+    }
+    if (!this.totp.verify(pending, code)) throw new BadRequestException('TOTP 코드 불일치');
+
+    await this.prisma.user.update({ where: { id: userId }, data: { totp_secret: pending } });
+    await this.redis.del(pendingTotpKey(userId));
   }
 }

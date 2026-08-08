@@ -377,6 +377,34 @@ matrix:
     DOMAIN_MANAGER: deny
     OPERATOR: deny
     SUPER_ADMIN: allow
+  "GET /admin/audit-logs":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "POST /admin/simulate":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "POST /auth/2fa/reenroll":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "POST /auth/2fa/reenroll/confirm":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
   "POST /auth/signup":
     anonymous: allow
     MEMBER: allow
@@ -435,11 +463,11 @@ matrix:
     SUPER_ADMIN: allow
   "POST /auth/onboarding/totp":
     anonymous: deny
-    MEMBER: allow
-    FILE_MANAGER: allow
-    DOMAIN_MANAGER: allow
-    OPERATOR: allow
-    SUPER_ADMIN: allow
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
   "POST /auth/onboarding/totp/confirm":
     anonymous: deny
     MEMBER: allow

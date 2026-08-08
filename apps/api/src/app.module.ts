@@ -1,5 +1,5 @@
-import { Module } from '@nestjs/common';
-import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { Module, ValidationPipe } from '@nestjs/common';
+import { APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CONTROLLERS } from './app.controllers';
@@ -12,6 +12,7 @@ import { PermVersionService } from './cache/perm-version.service';
 import { AuditService } from './audit/audit.service';
 import { AuditInterceptor } from './audit/audit.interceptor';
 import { AuditPartitionService } from './audit/partition.service';
+import { AuditRetentionService } from './audit/retention.service';
 import { AuthorizationService, GRANT_STORE } from './authorization/authorization.service';
 import { PrismaGrantStore } from './authorization/grant.store';
 import { SnapshotService } from './authorization/snapshot.service';
@@ -24,6 +25,8 @@ import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
 import { MembersService } from './members/members.service';
 import { RolesService } from './admin/roles.service';
+import { AuditQueryService } from './admin/audit-query.service';
+import { PermissionSimulatorService } from './admin/simulator.service';
 import { FilesService } from './files/files.service';
 import { SharesService } from './files/shares.service';
 import { DomainsService } from './domains/domains.service';
@@ -85,6 +88,7 @@ import {
     PermVersionService,
     AuditService,
     AuditPartitionService,
+    AuditRetentionService,
     SnapshotService,
     PolicyService,
     RoleGrantService,
@@ -98,6 +102,8 @@ import {
     AuthService,
     MembersService,
     RolesService,
+    AuditQueryService,
+    PermissionSimulatorService,
     FilesService,
     SharesService,
     DomainsService,
@@ -123,6 +129,16 @@ import {
     },
     // WP-3의 RejectAll 스텁을 JWT 검증(pv 대조 포함)으로 교체 — WP-2
     { provide: TOKEN_VERIFIER, useClass: JwtTokenVerifier },
+    /**
+     * 입력 방향 화이트리스트 (§10.2). **모듈 프로바이더로 둔다.**
+     * bootstrap 에만 등록하면 테스트가 부팅하는 앱에는 적용되지 않아, `owner_id` 같은 필드가
+     * 들어오는 것을 막는 이 방어가 **어떤 검증에도 걸리지 않는다**(WP-15에서 발견).
+     * 출력 화이트리스트(직렬화)만으로는 소유권 탈취 입력을 막지 못한다(§10.1).
+     */
+    {
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: OnboardingGuard },

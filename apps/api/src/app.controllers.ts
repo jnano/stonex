@@ -10,6 +10,7 @@ import {
   DomainsController,
 } from './domains/domains.controller';
 import { GovernanceController } from './governance/governance.controller';
+import { AdminAuditController } from './admin/audit.controller';
 
 /**
  * 전체 컨트롤러 목록 — AppModule 과 G-5 검사(bootstrap-check)가 공유하는 유일한 출처.
@@ -28,4 +29,5 @@ export const CONTROLLERS = [
   AdminDomainsController,
   DomainTransfersController,
   GovernanceController,
+  AdminAuditController,
 ];

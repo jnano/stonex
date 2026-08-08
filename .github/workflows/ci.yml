@@ -200,7 +200,9 @@ jobs:
       - run: pnpm exec prisma migrate deploy
         env:
           DATABASE_URL: postgresql://stonex:stonex@localhost:5432/stonex_test
-      - run: pnpm --filter @stonex/api exec jest test/g1-matrix.spec.ts
+      # 역할 축과 **관계 축**을 함께 검증한다. 관계 축이 없으면 같은 역할이라도 소유·공유·만료·차단에
+      # 따라 갈리는 Phase 2 판정을 픽스처가 우연히 고른 하나로만 박제하게 된다(RT-17·WT-14).
+      - run: pnpm --filter @stonex/api exec jest test/g1-matrix.spec.ts test/g1-relations.spec.ts
 
   g3-attack:
     name: 'G-3 공격 시나리오 회귀'
