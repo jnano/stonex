@@ -460,6 +460,7 @@ model Post {
   is_pinned     Boolean   @default(false)
   comment_count BigInt    @default(0)
   view_count    BigInt    @default(0) // WP-B4 — 요청 경로 쓰기 금지, 버퍼 주기 플러시
+  is_secret     Boolean   @default(false) // WP-B5 secret-post — canReadPost 훅이 판정(§6.5)
   created_at    DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
   updated_at    DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
   deleted_at    DateTime? @db.Timestamptz()
@@ -552,6 +553,55 @@ model BoardTag {
   @@id([post_id, tag])
   @@index([tag])
   @@map("board_tags")
+}
+
+
+// ── board 모듈 기여: WP-B5 접근개입·신고 (D-2) ──
+
+// 비밀글 열람 지정자 (§6.5 secret-post) — 작성자·moderate 외 추가 허용 대상
+model PostSecretReader {
+  post_id String @db.Uuid
+  user_id String @db.Uuid
+
+  @@id([post_id, user_id])
+  @@map("post_secret_readers")
+}
+
+// 공동작성자 (§6.5 co-author) — owner_id 는 원작성자로 불변, 이 표는 편집권만 준다
+model PostAuthor {
+  post_id String @db.Uuid
+  user_id String @db.Uuid
+
+  @@id([post_id, user_id])
+  @@map("post_authors")
+}
+
+// 사용자 차단 (§6.5 user-block) — **보안 경계가 아니라 표시 필터**. 인가·감사·검색에 불개입
+model UserBlock {
+  blocker_id String   @db.Uuid
+  blocked_id String   @db.Uuid
+  created_at DateTime @default(dbgenerated("now()")) @db.Timestamptz()
+
+  @@id([blocker_id, blocked_id])
+  @@map("user_blocks")
+}
+
+// 신고 (기능모듈 report). 집단 신고 자동 발동은 "임시 숨김 + 운영 확인"까지만(R-B15)
+model BoardReport {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id   String    @db.Uuid
+  post_id     String    @db.Uuid
+  reporter_id String    @db.Uuid
+  reason      String    @db.VarChar(300)
+  status      String    @default("OPEN") @db.VarChar(16) // OPEN | UPHELD | DISMISSED
+  created_at  DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
+  resolved_by String?   @db.Uuid
+  resolved_at DateTime? @db.Timestamptz()
+
+  // 같은 사람이 같은 글을 여러 번 신고해 자동 발동 문턱을 홀로 넘기는 것 차단(R-B15)
+  @@unique([post_id, reporter_id])
+  @@index([tenant_id, status, created_at])
+  @@map("board_reports")
 }
 
 // ═══ board 모듈 기여 끝 ═══

@@ -46,3 +46,24 @@ export function renderBodyHtml(markdown: string): string {
 
 /** 자식 있는 댓글 삭제 시 트리 보존용 tombstone (§4.1, BINV-4) */
 export const COMMENT_TOMBSTONE = '<p class="tombstone">삭제된 댓글입니다</p>';
+
+/**
+ * 멘션 파서 (§6.5 mention) — 본문의 @email 을 같은 테넌트의 활성 사용자로 해석한다.
+ * 대상 목록만 반환한다 — **수신 여부는 소비 시점의 접근 재판정이 결정**하므로,
+ * 여기서 접근 불가 대상을 걸러도 그것은 최적화일 뿐 보안 경계가 아니다.
+ */
+import type { Prisma } from '@stonex/db';
+
+export async function extractMentions(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  markdown: string,
+): Promise<string[]> {
+  const emails = [...new Set([...markdown.matchAll(/@([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g)].map((m) => m[1]))];
+  if (emails.length === 0) return [];
+  const users = await tx.user.findMany({
+    where: { tenant_id: tenantId, email: { in: emails.slice(0, 20) }, deleted_at: null, status: 'ACTIVE' },
+    select: { id: true },
+  });
+  return users.map((u) => u.id);
+}

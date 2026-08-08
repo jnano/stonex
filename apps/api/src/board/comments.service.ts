@@ -5,7 +5,9 @@ import { AuditService } from '../audit/audit.service';
 import { SubjectSnapshot } from '../authorization/types';
 import { BoardsService } from './boards.service';
 import { BoardEventBus } from './event-bus';
-import { COMMENT_TOMBSTONE, renderBodyHtml } from './render';
+import { PostPolicyService } from './post-policy.service';
+import { validateSettings } from './presets';
+import { COMMENT_TOMBSTONE, extractMentions, renderBodyHtml } from './render';
 
 export interface CommentView {
   id: string;
@@ -39,6 +41,7 @@ export class CommentsService {
     private readonly audit: AuditService,
     private readonly boards: BoardsService,
     private readonly bus: BoardEventBus,
+    private readonly policy: PostPolicyService,
   ) {}
 
   /** 게시글의 댓글 전체 — path 사전순 = 트리 전위순회(§9). 페이징은 WP-B3 */
@@ -109,10 +112,14 @@ export class CommentsService {
       });
       await tx.post.update({ where: { id: post.id }, data: { comment_count: { increment: 1 } } });
       // 부수효과(작성자 알림)는 비동기 레인 — 본 트랜잭션과 함께 커밋(§6.2)
+      const mentioned = await extractMentions(tx, subject.tenantId, input.bodyMd);
       await this.bus.publish(tx, {
         tenantId: subject.tenantId,
         topic: 'comment.created',
-        payload: { postId: post.id, boardId: post.board_id, actorId: subject.id, commentId: created.id },
+        payload: {
+          postId: post.id, boardId: post.board_id, actorId: subject.id, commentId: created.id,
+          mentionedUserIds: mentioned,
+        },
       });
       await this.audit.record(tx, {
         tenantId: subject.tenantId, actorId: subject.id, action: 'comment.create',
@@ -184,10 +191,16 @@ export class CommentsService {
     subject: SubjectSnapshot,
     postId: string,
     options: { write?: boolean } = {},
-  ): Promise<{ id: string; board_id: string }> {
+  ): Promise<{ id: string; board_id: string; tenant_id: string }> {
     const post = await this.prisma.post.findUnique({ where: { id: postId } });
     if (!post || post.deleted_at || post.status !== 'PUBLISHED') throw new NotFoundException();
-    await this.boards.loadAccessible(subject, post.board_id, options);
+    const board = await this.boards.loadAccessible(subject, post.board_id, options);
+    // 비밀글의 댓글은 글과 같은 판정(R-B11 — 목록·검색·알림·댓글 전 경로 결합)
+    if (!(await this.policy.canReadPost(subject, post))) throw new NotFoundException();
+    // 댓글 기능이 꺼진 게시판(FAQ 프리셋)은 작성 거부 — 설정은 정책의 입력(BINV-1)
+    if (options.write && !validateSettings(board.settings).comment.enabled) {
+      throw new NotFoundException();
+    }
     return post;
   }
 }

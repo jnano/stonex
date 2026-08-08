@@ -318,7 +318,25 @@ export interface PostSummary {
   commentCount: number;
   viewCount: number;
   status: string;
+  isSecret: boolean;
   createdAt: string;
+}
+
+export interface ReportView {
+  id: string;
+  postId: string;
+  postTitle: string;
+  reason: string;
+  status: string;
+  createdAt: string;
+  openCountForPost: number;
+}
+
+export interface BriResult {
+  id: string;
+  title: string;
+  violations: number;
+  remediated: number;
 }
 
 export interface Attachment {
@@ -424,6 +442,22 @@ export const endpoints = {
     ),
   markNotificationRead: (id: string) =>
     api<{ ok: true }>(`/notifications/${id}/read`, { method: 'POST' }),
+  createBoard: (body: { slug: string; name: string; boardType?: string; visibility?: string }) =>
+    api<BoardSummary>('/boards', { method: 'POST', body: JSON.stringify(body) }),
+  boardCapabilities: (boardId: string) =>
+    api<Array<{ key: string; enabled: boolean }>>(`/boards/${boardId}/capabilities`),
+  setBoardCapability: (boardId: string, key: string, enabled: boolean) =>
+    api<{ ok: true }>(`/boards/${boardId}/capabilities`, {
+      method: 'PATCH', body: JSON.stringify({ key, enabled }),
+    }),
+  reportPost: (postId: string, reason: string) =>
+    api<{ ok: true }>(`/posts/${postId}/report`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  boardReports: () => api<ReportView[]>('/admin/board/reports'),
+  resolveReport: (id: string, uphold: boolean) =>
+    api<{ ok: true }>(`/admin/board/reports/${id}/resolve`, {
+      method: 'POST', body: JSON.stringify({ uphold }),
+    }),
+  boardPatrol: () => api<BriResult[]>('/admin/board/patrol'),
 
   files: (page = 1) => api<{ items: FileSummary[]; total: number }>(`/files?page=${page}`),
   file: (id: string) => api<FileSummary>(`/files/${id}`),

@@ -36,6 +36,7 @@ import { BoardCapabilitiesService, BoardTagsService } from '../src/board/capabil
 import { OwnerCleanupRegistry } from '../src/authorization/owner-cleanup';
 import { OwnerCleanupWorker } from '../src/members/owner-cleanup.worker';
 import { COMMENT_TOMBSTONE } from '../src/board/render';
+import { PostPolicyService } from '../src/board/post-policy.service';
 import { testRegistry } from './helpers/registry';
 
 jest.setTimeout(180_000);
@@ -84,8 +85,12 @@ describe('게시판 코어 (WP-B1, 실 DB)', () => {
     boards = new BoardsService(p, audit, policy, grants);
     const storage = new StorageService(new SettingsService(p, new AuditService()));
     const attachments = new BoardAttachmentService(p, audit, storage, new UploadSessionService(p, storage), boards);
-    posts = new PostsService(p, audit, boards, attachments, new BoardTagsService(p, new BoardCapabilitiesService(p)), new ViewCountService(p));
-    comments = new CommentsService(p, audit, boards, new BoardEventBus(p));
+    const caps = new BoardCapabilitiesService(p);
+    posts = new PostsService(
+      p, audit, boards, attachments, new BoardTagsService(p, caps), new ViewCountService(p),
+      new PostPolicyService(p), caps, new BoardEventBus(p),
+    );
+    comments = new CommentsService(p, audit, boards, new BoardEventBus(p), new PostPolicyService(p));
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'board-test' } });
     for (const code of [...MEMBER_CODES, 'board.moderate', 'board.moderate.all', 'board.manage']) {

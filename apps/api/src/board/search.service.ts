@@ -3,6 +3,7 @@ import { Prisma } from '@stonex/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubjectSnapshot } from '../authorization/types';
 import { BoardsService } from './boards.service';
+import { PostPolicyService } from './post-policy.service';
 import { PostSummary } from './posts.service';
 
 /**
@@ -30,6 +31,7 @@ export class BoardSearchService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly boards: BoardsService,
+    private readonly policy: PostPolicyService,
   ) {}
 
   async search(
@@ -41,27 +43,35 @@ export class BoardSearchService {
     await this.boards.loadAccessible(subject, boardId); // 평면 2 — 비가시 게시판은 404
     const trimmed = query.trim();
     if (trimmed.length < 2) return []; // 1자 검색은 전량 스캔에 가깝다 — 최소 2자
+    // 비밀글(R-B11): 검색은 목록과 같은 스코프 — 검색이 비밀글의 존재를 드러내면 안 된다
+    const secret = await this.policy.secretScope(subject);
+    const blocked = await this.policy.blockedIds(subject.id);
 
     const rows = await this.prisma.$queryRaw<
       Array<{
         id: string; board_id: string; owner_id: string; title: string;
-        is_pinned: boolean; comment_count: bigint; view_count: bigint; status: string; created_at: Date;
+        is_pinned: boolean; comment_count: bigint; view_count: bigint; status: string;
+        is_secret: boolean; created_at: Date;
       }>
     >`
-      SELECT p.id, p.board_id, p.owner_id, p.title, p.is_pinned, p.comment_count, p.view_count, p.status, p.created_at
+      SELECT p.id, p.board_id, p.owner_id, p.title, p.is_pinned, p.comment_count, p.view_count, p.status, p.is_secret, p.created_at
         FROM posts p
        WHERE p.board_id = ${boardId}::uuid
          AND p.deleted_at IS NULL
          AND (p.status = 'PUBLISHED' OR (p.status = 'DRAFT' AND p.owner_id = ${subject.id}::uuid))
          AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = p.owner_id AND u.deleted_at IS NOT NULL)
+         AND (${secret.bypassAll}::boolean OR p.is_secret = false OR p.owner_id = ${subject.id}::uuid
+              OR p.id = ANY(${secret.readablePostIds}::uuid[])
+              OR p.board_id = ANY(${secret.moderateBoardIds}::uuid[]))
+         AND NOT (p.owner_id = ANY(${blocked}::uuid[]))
          AND ${searchCondition(trimmed)}
        ORDER BY p.created_at DESC, p.id DESC
        LIMIT ${Math.min(Math.max(limit, 1), 50)}`;
 
     return rows.map((p) => ({
       id: p.id, boardId: p.board_id, ownerId: p.owner_id, title: p.title,
-      isPinned: p.is_pinned, commentCount: Number(p.comment_count), viewCount: Number(p.view_count), status: p.status,
-      createdAt: p.created_at.toISOString(),
+      isPinned: p.is_pinned, commentCount: Number(p.comment_count), viewCount: Number(p.view_count),
+      status: p.status, isSecret: p.is_secret, createdAt: p.created_at.toISOString(),
     }));
   }
 }

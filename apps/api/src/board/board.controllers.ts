@@ -12,6 +12,9 @@ import { PostDetail, PostSummary, PostsService } from './posts.service';
 import { CommentView, CommentsService } from './comments.service';
 import { BoardReactionsService, ReactionSummary } from './capabilities.service';
 import { BoardSearchService } from './search.service';
+import { BoardReportsService, ReportView } from './reports.service';
+import { BoardPatrolService, BriResult } from './board-patrol.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { BoardNotificationService, NotificationView } from './notification.service';
 
 /**
@@ -48,6 +51,8 @@ class CreatePostDto {
   @IsOptional() @IsBoolean() draft?: boolean;
   @IsOptional() @IsUUID(undefined, { each: true }) attachmentFileIds?: string[];
   @IsOptional() @IsString({ each: true }) tags?: string[];
+  @IsOptional() @IsBoolean() secret?: boolean;
+  @IsOptional() @IsUUID(undefined, { each: true }) secretReaderIds?: string[];
 }
 
 class UpdatePostDto {
@@ -60,6 +65,19 @@ class UpdatePostDto {
 
 class ReactionDto {
   @IsString() @Length(1, 24) kind!: string;
+}
+
+class ReportDto {
+  @IsString() @Length(1, 300) reason!: string;
+}
+
+class CoAuthorsDto {
+  @IsUUID(undefined, { each: true }) userIds!: string[];
+}
+
+class CapabilityDto {
+  @IsString() @Length(1, 48) key!: string;
+  @IsBoolean() enabled!: boolean;
 }
 
 class IssueUploadDto {
@@ -162,6 +180,26 @@ export class BoardsController {
     return this.search.search(subjectOf(req), id, q ?? '');
   }
 
+  @RequirePermission('board.manage', { resource: { type: 'board', param: 'id' } })
+  @Get(':id/capabilities')
+  async listCapabilities(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+  ): Promise<Array<{ key: string; enabled: boolean }>> {
+    return this.boards.listCapabilities(subjectOf(req), id);
+  }
+
+  @RequirePermission('board.manage', { resource: { type: 'board', param: 'id' } })
+  @Patch(':id/capabilities')
+  async setCapability(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: CapabilityDto,
+  ): Promise<{ ok: true }> {
+    await this.boards.setCapability(subjectOf(req), id, body.key, body.enabled);
+    return { ok: true };
+  }
+
   @AuthenticatedOnly()
   @Get(':id/posts')
   async listPosts(
@@ -211,6 +249,7 @@ export class PostsController {
     private readonly posts: PostsService,
     private readonly comments: CommentsService,
     private readonly reactions: BoardReactionsService,
+    private readonly reports: BoardReportsService,
   ) {}
 
   @RequirePermission('board.read', { resource: { type: 'post', param: 'id' } })
@@ -219,7 +258,11 @@ export class PostsController {
     return this.posts.detail(subjectOf(req), id);
   }
 
-  @RequirePermission('post.update', { resource: { type: 'post', param: 'id' } })
+  /**
+   * 수정 — 인증 게이트형(§6.5 co-author). owned Guard 로는 공동작성자를 표현할 수 없어,
+   * 판정은 서비스의 canEditPost(작성자 ∨ 공동작성자 ∨ 운영자)가 한다. 코어 FILE-5 패턴.
+   */
+  @AuthenticatedOnly()
   @Patch(':id')
   async update(
     @Req() req: AuthedRequest,
@@ -234,6 +277,29 @@ export class PostsController {
   async remove(@Req() req: AuthedRequest, @Param('id') id: string): Promise<{ ok: true }> {
     await this.posts.softDelete(subjectOf(req), id);
     return { ok: true };
+  }
+
+  /** 공동작성자 지정 (§6.5) — 원작성자만. owner_id 는 불변(R-B12) */
+  @AuthenticatedOnly()
+  @HttpPost(':id/authors')
+  async setCoAuthors(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: CoAuthorsDto,
+  ): Promise<{ ok: true }> {
+    await this.posts.setCoAuthors(subjectOf(req), id, body.userIds);
+    return { ok: true };
+  }
+
+  /** 신고 (기능모듈 report — R-B15). 자동 발동 상한은 임시 숨김 + 운영 대기 */
+  @RequirePermission('board.read', { resource: { type: 'post', param: 'id' } })
+  @HttpPost(':id/report')
+  async report(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: ReportDto,
+  ): Promise<{ ok: true }> {
+    return this.reports.report(subjectOf(req), id, body.reason);
   }
 
   /** 반응 토글 (기능모듈 reaction — §6.4). 꺼진 게시판이면 404 */
@@ -294,6 +360,27 @@ export class CommentsController {
   }
 }
 
+/** 사용자 차단 (§6.5 user-block — **표시 필터**이지 보안 경계가 아니다. 본인 한정) */
+@Controller('me/blocks')
+export class UserBlocksController {
+  constructor(private readonly prisma: PrismaService) {}
+
+  @AuthenticatedOnly()
+  @HttpPost(':userId')
+  async toggle(@Req() req: AuthedRequest, @Param('userId') userId: string): Promise<{ blocked: boolean }> {
+    const subject = subjectOf(req);
+    if (userId === subject.id) throw new UnauthorizedException();
+    const key = { blocker_id: subject.id, blocked_id: userId };
+    const existing = await this.prisma.userBlock.findUnique({ where: { blocker_id_blocked_id: key } });
+    if (existing) {
+      await this.prisma.userBlock.delete({ where: { blocker_id_blocked_id: key } });
+      return { blocked: false };
+    }
+    await this.prisma.userBlock.create({ data: key });
+    return { blocked: true };
+  }
+}
+
 /** 알림 (기반 기능모듈 — 본인 한정, 권한 검사 대상 아님) */
 @Controller('notifications')
 export class NotificationsController {
@@ -322,6 +409,8 @@ export class BoardAdminController {
   constructor(
     private readonly posts: PostsService,
     private readonly comments: CommentsService,
+    private readonly reports: BoardReportsService,
+    private readonly patrol: BoardPatrolService,
   ) {}
 
   @RequirePermission('post.delete.all')
@@ -331,6 +420,31 @@ export class BoardAdminController {
     await this.posts.loadForAdmin(subject, id);
     await this.posts.softDelete(subject, id, true);
     return { ok: true };
+  }
+
+  /** 신고 목록 (운영) */
+  @RequirePermission('board.moderate.all')
+  @Get('board/reports')
+  async listReports(@Req() req: AuthedRequest): Promise<ReportView[]> {
+    return this.reports.listOpen(subjectOf(req));
+  }
+
+  /** 신고 결정 — 삭제(uphold)·기각(dismiss)은 운영자의 명시적 행위이며 감사에 남는다(R-B15) */
+  @RequirePermission('board.moderate.all')
+  @HttpPost('board/reports/:id/resolve')
+  async resolveReport(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: { uphold?: boolean },
+  ): Promise<{ ok: true }> {
+    return this.reports.resolve(subjectOf(req), id, body.uphold === true);
+  }
+
+  /** BRI 순찰 상태·수동 실행 (§12) */
+  @RequirePermission('governance.read')
+  @Get('board/patrol')
+  async patrolStatus(): Promise<BriResult[]> {
+    return this.patrol.lastResults.length > 0 ? this.patrol.lastResults : this.patrol.patrol();
   }
 
   @RequirePermission('comment.delete.all')
