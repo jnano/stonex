@@ -15,6 +15,7 @@ import { config } from 'dotenv';
 import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { AuthService } from '../src/auth/auth.service';
+import { GovernanceFreezeService } from '../src/governance/freeze.service';
 import { AuditService } from '../src/audit/audit.service';
 import { RoleGrantService } from '../src/authorization/role-grant.service';
 import { PermVersionService } from '../src/cache/perm-version.service';
@@ -90,6 +91,7 @@ describe('WP-2 인증 (실 DB)', () => {
       new RoleGrantService(
         new AuditService(),
         new PermVersionService(p, new PermissionCacheService(new RedisService())),
+        new GovernanceFreezeService(p, new AuditService()),
       ),
       new PasswordService(new AllowAllBreachChecker()),
       tokens, new TotpService(), mailer,

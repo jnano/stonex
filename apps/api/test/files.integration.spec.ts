@@ -14,6 +14,7 @@ import { config } from 'dotenv';
 import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { GovernanceFreezeService } from '../src/governance/freeze.service';
 import { AuditService } from '../src/audit/audit.service';
 import { ResourceGrantService } from '../src/authorization/resource-grant.service';
 import { StorageService } from '../src/storage/storage.service';
@@ -79,7 +80,7 @@ describe('WP-10 파일 기본 기능 (실 DB)', () => {
     prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: TEST_URL }) });
     p = prisma as unknown as PrismaService;
     const audit = new AuditService();
-    grants = new ResourceGrantService(audit);
+    grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit));
     const storage = new StorageService();
     files = new FilesService(p, audit, grants, storage, new UploadSessionService(p, storage), new PrismaGrantStore(p));
     authz = new AuthorizationService(new PrismaGrantStore(p));
@@ -150,7 +151,7 @@ describe('WP-10 파일 기본 기능 (실 DB)', () => {
       record: async () => { throw new Error('감사 기록 실패 주입'); },
     } as unknown as AuditService;
     const brokenFiles = new FilesService(
-      p, brokenAudit, new ResourceGrantService(brokenAudit),
+      p, brokenAudit, new ResourceGrantService(brokenAudit, new GovernanceFreezeService(p, brokenAudit)),
       new StorageService(), new UploadSessionService(p, new StorageService()), new PrismaGrantStore(p),
     );
     await expect(brokenFiles.softDelete(snapshot(ownerId), file.id)).rejects.toThrow();

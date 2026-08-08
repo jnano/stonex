@@ -18,6 +18,7 @@ import { config } from 'dotenv';
 import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { GovernanceFreezeService } from '../src/governance/freeze.service';
 import { AuditService } from '../src/audit/audit.service';
 import { ResourceGrantService } from '../src/authorization/resource-grant.service';
 import { AuthorizationService } from '../src/authorization/authorization.service';
@@ -106,7 +107,7 @@ describe('WP-12 도메인 기본 기능 (실 DB)', () => {
     p = prisma as unknown as PrismaService;
     const audit = new AuditService();
     dns = new FakeResolver();
-    domains = new DomainsService(p, audit, new ResourceGrantService(audit), new PrismaGrantStore(p));
+    domains = new DomainsService(p, audit, new ResourceGrantService(audit, new GovernanceFreezeService(p, audit)), new PrismaGrantStore(p));
     verification = new DomainVerificationService(p, audit, dns);
     authz = new AuthorizationService(new PrismaGrantStore(p));
     loader = new ResourceLoaderRegistry(p);

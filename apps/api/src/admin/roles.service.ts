@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import type { Prisma } from '@stonex/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { GovernanceFreezeService } from '../governance/freeze.service';
 import { PermVersionService } from '../cache/perm-version.service';
 import { SubjectSnapshot } from '../authorization/types';
 
@@ -32,6 +33,7 @@ export class RolesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly permVersion: PermVersionService,
+    private readonly freeze: GovernanceFreezeService,
   ) {}
 
   // ── ADM-1 조회 ────────────────────────────────────────────────
@@ -193,6 +195,8 @@ export class RolesService {
    * 변경 후 보유자 전원의 pv 를 배치 증가시키고 캐시를 삭제한다(§8.3).
    */
   async setPermissions(actor: SubjectSnapshot, roleId: string, codes: string[]): Promise<RoleDetail> {
+    // L-2 동결 선행 검사 (§14.4) — 매핑 편집은 역할 하나로 다수의 권한을 한꺼번에 옮긴다
+    await this.freeze.assertNotFrozen(actor.id);
     const role = await this.prisma.role.findUnique({
       where: { id: roleId },
       include: { role_permissions: { include: { permission: true } } },

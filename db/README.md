@@ -34,6 +34,10 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 | `domain_transfers` 부분 유니크 `uq_domain_transfers_pending` (WHERE status='PENDING') | `20260808021744_domain_transfers` |
 | `domain_transfers.status` CHECK (PENDING\|ACCEPTED\|CANCELLED\|EXPIRED\|INVALIDATED) | `20260808021744_domain_transfers` |
 | `domain_transfers` 자기이전 금지 CHECK (from_user_id <> to_user_id) | `20260808021744_domain_transfers` |
+| `audit.audit_checkpoints` + `day_digest`·`chain_digest` 함수 (Prisma 모델 없음) | `20260808030000_audit_checkpoints` |
+| `governance_freezes` 부분 유니크 `uq_governance_freezes_active` (WHERE status='ACTIVE') | `20260808035001_governance_freezes` |
+| `governance_freezes.status` CHECK (ACTIVE\|RELEASED) | `20260808035001_governance_freezes` |
+| `governance_freezes` 자기해제 금지 CHECK (released_by <> user_id) | `20260808035001_governance_freezes` |
 
 ## 업로드 세션 (`file_uploads`)
 
@@ -69,6 +73,19 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
   검증은 `PolicyService.canAcceptTransfer` 가 도메인 행을 `FOR UPDATE` 로 잠근 뒤 재현한다.
 - 수락 시 **ALLOW Grant 는 삭제, DENY Grant 는 승계**한다 — DENY 를 함께 지우면
   소유권 왕복만으로 제재가 해제된다.
+
+## L-2 권한 변경 동결 (`governance_freezes`, WP-14b)
+
+이상 정황이 잡힌 계정의 **권한 변경 기능만** 묶는다 — 로그인·파일 업로드·도메인 사용은 그대로다.
+계정 정지(`users.status`)와 다른 축이며 기존 테이블을 건드리지 않는다(INV-7).
+
+- **동결 대상은 라우트 목록이 아니라 Permission 집합**이다(`FROZEN_PERMISSIONS`). 라우트로 두면
+  새 API 를 추가할 때 조용히 누락된다. 집합은 시드에서 `*.share(.all)` + 역할 부여 + 매핑 편집으로
+  기계적으로 도출한다.
+- 강제 지점은 **Guard(HTTP 경로) + 권한 변경 서비스 진입부** 두 겹이다. 시스템 행위(actorId=null)는
+  대상이 아니다 — 시스템을 동결하면 이상 상황에서 정리 자체가 멈춘다.
+- 해제는 **피동결자 본인을 제외한** 활성 SUPER_ADMIN 1인이 승인한다. DB CHECK 로도 자기해제를 막는다.
+  승인 가능 인원이 0명이면 break-glass 런북으로 넘어간다.
 
 ## 감사 로그는 전용 스키마 `audit` 에 둔다 (중요)
 
