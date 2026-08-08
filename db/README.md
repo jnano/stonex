@@ -38,6 +38,9 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 | `governance_freezes` 부분 유니크 `uq_governance_freezes_active` (WHERE status='ACTIVE') | `20260808035001_governance_freezes` |
 | `governance_freezes.status` CHECK (ACTIVE\|RELEASED) | `20260808035001_governance_freezes` |
 | `governance_freezes` 자기해제 금지 CHECK (released_by <> user_id) | `20260808035001_governance_freezes` |
+| `audit_logs` 조회 인덱스 2종 (actor·action) | `20260808050000_audit_query_indexes` |
+| `email_change_requests` 부분 유니크 `uq_email_change_pending` (WHERE status='PENDING') | `20260808061023_email_change_requests` |
+| `email_change_requests.status` CHECK (PENDING\|CONFIRMED\|CANCELLED\|EXPIRED) | `20260808061023_email_change_requests` |
 
 ## 업로드 세션 (`file_uploads`)
 

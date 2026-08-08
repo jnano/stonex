@@ -24,6 +24,7 @@ import { AuthGuard, TOKEN_VERIFIER } from './authorization/guards/auth.guard';
 import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
 import { MembersService } from './members/members.service';
+import { EmailChangeService } from './members/email-change.service';
 import { RolesService } from './admin/roles.service';
 import { AuditQueryService } from './admin/audit-query.service';
 import { PermissionSimulatorService } from './admin/simulator.service';
@@ -101,6 +102,7 @@ import {
     TotpService,
     AuthService,
     MembersService,
+    EmailChangeService,
     RolesService,
     AuditQueryService,
     PermissionSimulatorService,

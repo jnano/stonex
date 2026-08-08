@@ -18,3 +18,31 @@ export const g2RestrictedSyntax = [
   { selector: `BinaryExpression[operator=${CMP}] > Identifier[name=/^(display_order|displayOrder)$/]`, message: INV2_MSG },
   { selector: `BinaryExpression[operator=${CMP}] > MemberExpression[property.name=/^(display_order|displayOrder)$/]`, message: INV2_MSG },
 ];
+
+/**
+ * 프론트엔드 전용 추가 룰 (WP-15 후속).
+ *
+ * 기획서 §3·§8.4: **프론트의 표시 분기는 UX 목적이며 보안 경계가 아니다.**
+ * 그러나 화면이 늘면 "여기서만 잠깐" 권한을 직접 판단하는 코드가 스며들고, 그 사본은
+ * 서버 규칙이 바뀔 때 따라가지 못해 **보이는 것과 실제가 어긋난다**.
+ *
+ * 유일한 통로는 `useSession().can(permissionCode)` 다. 역할 코드로 분기하거나
+ * 권한 배열을 직접 뒤지는 것을 여기서 막는다.
+ */
+const WEB_MSG =
+  '프론트에서 권한을 재구현하지 마십시오 (§3·§8.4). 표시 분기는 useSession().can(코드) 를 쓰고, ' +
+  '실제 차단은 서버의 403/404 에 맡깁니다.';
+
+export const g2WebRestrictedSyntax = [
+  // me.roles.includes('SUPER_ADMIN') 류 — 역할 코드로 화면을 가르는 패턴
+  {
+    selector: "CallExpression[callee.property.name='includes'][callee.object.property.name='roles']",
+    message: WEB_MSG,
+  },
+  // permissions 배열을 직접 뒤지는 패턴 (session.tsx 의 can() 구현만 예외)
+  {
+    selector:
+      "CallExpression[callee.property.name=/^(some|find|filter|includes)$/][callee.object.property.name='permissions']",
+    message: WEB_MSG,
+  },
+];

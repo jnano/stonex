@@ -1,9 +1,41 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
-import { AuthenticatedOnly, RequireDominance, RequirePermission } from '../authorization/decorators';
+import { Throttle } from '@nestjs/throttler';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { AuthenticatedOnly, Public, RequireDominance, RequirePermission } from '../authorization/decorators';
 import { AuthedRequest } from '../authorization/guards/auth.guard';
 import { SubjectSnapshot } from '../authorization/types';
 import { MembersService } from './members.service';
+import { EmailChangeService, EmailChangeView } from './email-change.service';
 import { MemberDetail, MemberSummary } from './member.serializer';
+
+/** 이메일 변경 요청 — 재인증 요소를 함께 받는다(§6.2 MEM-1) */
+export class RequestEmailChangeDto {
+  @IsEmail()
+  @MaxLength(255)
+  newEmail!: string;
+
+  /** 현재 TOTP 코드 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  code?: string;
+
+  /** 또는 현재 비밀번호 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  password?: string;
+}
+
+export class ConfirmEmailChangeDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  token!: string;
+}
+
+/** 이메일 변경 요청도 인증 API 와 같은 속도 제한을 받는다 — step-up 대입 시도를 막는다 */
+const EMAIL_CHANGE_RATE = { limit: Number(process.env.AUTH_RATE_LIMIT ?? 5), ttl: 60_000 };
 
 /**
  * 회원 관리 API (기획서 §6.2, §7.2).
@@ -13,7 +45,10 @@ import { MemberDetail, MemberSummary } from './member.serializer';
  */
 @Controller('members')
 export class MembersController {
-  constructor(private readonly members: MembersService) {}
+  constructor(
+    private readonly members: MembersService,
+    private readonly emailChange: EmailChangeService,
+  ) {}
 
   // ── MEM-1 내 프로필 (본인 한정 — Permission 검사 대상 아님) ──
   @AuthenticatedOnly()
@@ -29,6 +64,52 @@ export class MembersController {
     @Body() body: { name?: string },
   ): Promise<MemberDetail> {
     return this.members.updateMyProfile(subjectOf(req).id, body);
+  }
+
+  // ── MEM-1 이메일(로그인 식별자) 변경 — 재인증 + 새 주소 소유 확인 ──
+  /**
+   * 요청. 원문 토큰은 응답에 싣지 않고 **새 주소로만** 보낸다 —
+   * 응답에 실으면 그 주소를 소유하지 않아도 확인을 마칠 수 있어 2단계가 무의미해진다.
+   */
+  @AuthenticatedOnly()
+  @Throttle({ default: EMAIL_CHANGE_RATE })
+  @Post('me/email-change')
+  async requestEmailChange(
+    @Req() req: AuthedRequest,
+    @Body() body: RequestEmailChangeDto,
+  ): Promise<EmailChangeView> {
+    return this.emailChange.request(subjectOf(req), {
+      newEmail: body.newEmail,
+      stepUp: { code: body.code, password: body.password },
+    });
+  }
+
+  @AuthenticatedOnly()
+  @Get('me/email-change')
+  async pendingEmailChange(@Req() req: AuthedRequest): Promise<EmailChangeView | null> {
+    return this.emailChange.pending(subjectOf(req));
+  }
+
+  @AuthenticatedOnly()
+  @Delete('me/email-change/:id')
+  async cancelEmailChange(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+  ): Promise<{ ok: true }> {
+    await this.emailChange.cancel(subjectOf(req), id);
+    return { ok: true };
+  }
+
+  /**
+   * 확인 — **@Public 이다.** 새 주소로 받은 링크를 누르는 시점에는 로그인 상태가 아닐 수 있고,
+   * 토큰 자체가 소유 증명이다. 토큰은 1회용이며 해시만 저장된다.
+   */
+  @Public()
+  @Throttle({ default: EMAIL_CHANGE_RATE })
+  @Post('email-change/confirm')
+  async confirmEmailChange(@Body() body: ConfirmEmailChangeDto): Promise<{ ok: true }> {
+    await this.emailChange.confirm(body.token);
+    return { ok: true };
   }
 
   // ── MEM-2 목록·상세 ──
