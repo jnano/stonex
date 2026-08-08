@@ -94,7 +94,7 @@ describe('WP-2 인증 (실 DB)', () => {
         new GovernanceFreezeService(p, new AuditService()),
       ),
       new PasswordService(new AllowAllBreachChecker()),
-      tokens, new TotpService(), mailer,
+      tokens, new TotpService(), mailer, new RedisService(),
     );
   });
 
@@ -232,6 +232,82 @@ describe('WP-2 인증 (실 DB)', () => {
 
     status = await auth.onboardingStatus(userId);
     expect(isOnboardingComplete({ mustChangePassword: status.mustChangePassword, totpEnrollmentRequired: status.totpEnrollmentRequired })).toBe(true);
+  });
+
+  describe('CR-1: TOTP 재등록 step-up (Phase 1 코드 리뷰 필수 수정)', () => {
+    /** 온보딩을 마치고 2FA 가 등록된 계정을 만든다 */
+    const enrolledUser = async (label: string) => {
+      const email = uniqueEmail(label);
+      const password = 'correct-horse-battery';
+      const { userId } = await auth.signup(email, password, label);
+      await auth.verifyEmail(mailer.token());
+      await prisma.user.update({ where: { id: userId }, data: { totp_enrollment_required: true } });
+      await auth.beginTotpEnrollment(userId);
+      const secret = (await prisma.user.findUniqueOrThrow({ where: { id: userId } })).totp_secret!;
+      await auth.confirmTotpEnrollment(userId, new TotpService().generate(secret));
+      return { userId, password, secret };
+    };
+
+    it('(a) 온보딩 중 최초 등록은 성공한다', async () => {
+      const email = uniqueEmail('first-enroll');
+      const { userId } = await auth.signup(email, 'correct-horse-battery', '최초등록');
+      await auth.verifyEmail(mailer.token());
+      await prisma.user.update({ where: { id: userId }, data: { totp_enrollment_required: true } });
+
+      const { keyUri } = await auth.beginTotpEnrollment(userId);
+      expect(keyUri).toContain('otpauth://');
+    });
+
+    it('(b) 등록을 마친 계정의 온보딩 경로 재등록은 거부된다 — 세션 탈취자의 2FA 교체 차단', async () => {
+      const { userId, secret } = await enrolledUser('reenroll-denied');
+
+      // 이 경로가 열려 있으면 토큰을 탈취한 공격자가 피해자의 인증기를 자기 것으로 바꾼다
+      await expect(auth.beginTotpEnrollment(userId)).rejects.toMatchObject({ status: 403 });
+      // 기존 시크릿이 그대로여야 한다
+      expect((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).totp_secret).toBe(secret);
+    });
+
+    it('(b-2) step-up 없이 재등록을 시도하면 401 이고 시크릿이 바뀌지 않는다', async () => {
+      const { userId, secret } = await enrolledUser('reenroll-nostep');
+
+      await expect(auth.beginTotpReenrollment(userId, {})).rejects.toMatchObject({ status: 401 });
+      await expect(auth.beginTotpReenrollment(userId, { code: '000000' })).rejects.toMatchObject({ status: 401 });
+      await expect(auth.beginTotpReenrollment(userId, { password: '틀린비밀번호' })).rejects.toMatchObject({ status: 401 });
+      expect((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).totp_secret).toBe(secret);
+    });
+
+    it('(c) step-up(현재 TOTP 코드) 후 재등록에 성공한다', async () => {
+      const { userId, secret } = await enrolledUser('reenroll-code');
+      const totp = new TotpService();
+
+      const { keyUri } = await auth.beginTotpReenrollment(userId, { code: totp.generate(secret) });
+      expect(keyUri).toContain('otpauth://');
+
+      // **확인 전에는 기존 시크릿이 살아 있어야 한다** — 즉시 덮어쓰면 확인을 끝내지 않는 것만으로
+      // 피해자의 인증기가 무효가 되어 계정을 잠글 수 있다
+      expect((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).totp_secret).toBe(secret);
+
+      const newSecret = new URL(keyUri).searchParams.get('secret')!;
+      await auth.confirmTotpReenrollment(userId, totp.generate(newSecret));
+      const after = (await prisma.user.findUniqueOrThrow({ where: { id: userId } })).totp_secret;
+      expect(after).toBe(newSecret);
+      expect(after).not.toBe(secret);
+    });
+
+    it('(c-2) step-up(비밀번호) 후 재등록에 성공한다', async () => {
+      const { userId, password } = await enrolledUser('reenroll-pw');
+      const totp = new TotpService();
+
+      const { keyUri } = await auth.beginTotpReenrollment(userId, { password });
+      const newSecret = new URL(keyUri).searchParams.get('secret')!;
+      await auth.confirmTotpReenrollment(userId, totp.generate(newSecret));
+      expect((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).totp_secret).toBe(newSecret);
+    });
+
+    it('재등록 확인은 미확정 요청이 없으면 거부된다 (확인 단독 호출 방지)', async () => {
+      const { userId } = await enrolledUser('reenroll-orphan');
+      await expect(auth.confirmTotpReenrollment(userId, '000000')).rejects.toMatchObject({ status: 400 });
+    });
   });
 
   it('JWT: pv 불일치 토큰은 거부된다 (§8.3 권한 회수 즉시 전파)', async () => {

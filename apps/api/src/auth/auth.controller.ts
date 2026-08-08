@@ -99,6 +99,33 @@ export class AuthController {
     await this.auth.confirmTotpEnrollment(requireSubjectId(req), body.code);
     return { ok: true };
   }
+
+  // ── 2FA 재등록 (CR-1) ──
+  /**
+   * 온보딩 경로와 **분리한다**. 등록을 마친 계정의 재등록은 재인증(step-up)을 통과해야 하며,
+   * 그렇지 않으면 세션을 탈취한 공격자가 피해자의 2차 인증기를 교체할 수 있다.
+   * 속도 제한은 인증 API 와 동일하게 건다 — step-up 코드 대입 시도를 막는다.
+   */
+  @AuthenticatedOnly()
+  @Throttle({ default: AUTH_RATE })
+  @Post('2fa/reenroll')
+  async reenrollBegin(
+    @Req() req: AuthedRequest,
+    @Body() body: { code?: string; password?: string },
+  ): Promise<{ keyUri: string }> {
+    return this.auth.beginTotpReenrollment(requireSubjectId(req), body);
+  }
+
+  @AuthenticatedOnly()
+  @Throttle({ default: AUTH_RATE })
+  @Post('2fa/reenroll/confirm')
+  async reenrollConfirm(
+    @Req() req: AuthedRequest,
+    @Body() body: { code: string },
+  ): Promise<{ ok: true }> {
+    await this.auth.confirmTotpReenrollment(requireSubjectId(req), body.code);
+    return { ok: true };
+  }
 }
 
 /** @AuthenticatedOnly 경로에서 AuthGuard 가 확정한 주체 id를 꺼낸다 */

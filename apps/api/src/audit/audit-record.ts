@@ -29,6 +29,34 @@ export interface AuditEntry {
  *     await recordAudit(tx, { action: 'role.grant', ... }); // 기록 (실패 시 전체 롤백)
  *   });
  */
+/**
+ * 감사 detail 에 **절대 들어가면 안 되는 키** (WT-26).
+ *
+ * 마스킹이 아니라 **기록 자체를 막는다** — 마스킹은 "저장은 했지만 가렸다"이므로
+ * 백업·복제본·디버그 덤프에는 그대로 남는다. 감사 로그는 보존 기간이 길고 조회 권한이
+ * 넓어(§6.5 ADM-4) 한 번 들어간 비밀은 회수할 방법이 사실상 없다.
+ */
+const FORBIDDEN_KEYS = new Set([
+  'password', 'passwordHash', 'password_hash',
+  'totpSecret', 'totp_secret',
+  'verifyToken', 'verify_token',
+  'storageKey', 'storage_key',
+  'refreshToken', 'refresh_token', 'accessToken', 'access_token',
+  'secret', 'keyUri',
+]);
+
+/** 중첩 객체까지 훑어 금지 키를 제거한다. 배열 안의 객체도 대상이다 */
+function stripForbidden(value: unknown, depth = 0): unknown {
+  if (depth > 8 || value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((v) => stripForbidden(v, depth + 1));
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    if (FORBIDDEN_KEYS.has(key)) continue; // 값을 가리지 않고 키째 버린다
+    out[key] = stripForbidden(v, depth + 1);
+  }
+  return out;
+}
+
 export async function recordAudit(tx: Prisma.TransactionClient, entry: AuditEntry): Promise<void> {
   await tx.$executeRaw`
     INSERT INTO audit.audit_logs (tenant_id, actor_id, action, target_type, target_id, detail, ip_address)
@@ -38,7 +66,7 @@ export async function recordAudit(tx: Prisma.TransactionClient, entry: AuditEntr
       ${entry.action},
       ${entry.targetType ?? null},
       ${entry.targetId ?? null}::uuid,
-      ${JSON.stringify(entry.detail ?? {})}::jsonb,
+      ${JSON.stringify(stripForbidden(entry.detail ?? {}))}::jsonb,
       ${entry.ipAddress ?? null}::inet
     )`;
 }

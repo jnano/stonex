@@ -40,7 +40,8 @@ export interface ActionView {
 const HEALTHY_WINDOW_MS = Number(process.env.PATROL_HEALTHY_WINDOW_MS ?? 30 * 60 * 1000);
 
 interface PatrolLogRow {
-  created_at: Date;
+  /** UTC ISO 문자열. Date 로 받으면 세션 시간대만큼 어긋난다(audit-query.service.ts 주석 참조) */
+  at: string;
   detail: {
     after?: {
       durationMs?: number;
@@ -70,7 +71,9 @@ export class GovernanceStatusService {
 
   async status(): Promise<PatrolStatusView> {
     const [row] = await this.prisma.$queryRaw<PatrolLogRow[]>`
-      SELECT created_at, detail FROM audit.audit_logs
+      SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS at,
+             detail
+        FROM audit.audit_logs
        WHERE action = 'governance.patrol'
        ORDER BY created_at DESC LIMIT 1`;
 
@@ -91,7 +94,7 @@ export class GovernanceStatusService {
       };
     });
 
-    const lastRunAt = row?.created_at ?? null;
+    const lastRunAt = row?.at ? new Date(row.at) : null;
     return {
       healthy: lastRunAt !== null && Date.now() - lastRunAt.getTime() <= HEALTHY_WINDOW_MS,
       lastRunAt: lastRunAt?.toISOString() ?? null,
@@ -110,13 +113,14 @@ export class GovernanceStatusService {
    */
   async actions(limit = 50): Promise<ActionView[]> {
     const rows = await this.prisma.$queryRawUnsafe<Array<{
-      created_at: Date;
+      at: string;
       action: string;
       target_type: string | null;
       target_id: string | null;
       detail: { before?: Record<string, unknown>; reason?: string };
     }>>(
-      `SELECT created_at, action, target_type, target_id, detail
+      `SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS at,
+              action, target_type, target_id, detail
          FROM audit.audit_logs
         WHERE actor_id IS NULL
           AND action IN ('grant.revoke', 'grant.cleanup', 'governance.patrol')
@@ -125,7 +129,7 @@ export class GovernanceStatusService {
       Math.min(Math.max(limit, 1), 200),
     );
     return rows.map((r) => ({
-      at: r.created_at.toISOString(),
+      at: r.at,
       action: r.action,
       targetType: r.target_type,
       targetId: r.target_id,

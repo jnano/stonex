@@ -1,5 +1,4 @@
 import 'reflect-metadata';
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { CONTROLLERS } from './app.controllers';
@@ -13,11 +12,9 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api/v1');
   // 입력 방향 화이트리스트(기획서 §10.2). DTO 에 선언되지 않은 필드는 거부한다 —
-  // 출력 화이트리스트만으로는 owner_id 같은 필드가 **들어오는** 것을 막지 못해
-  // 공유 수령자가 소유권을 탈취하는 경로가 열린다(§10.1).
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
-  );
+  // 입력 화이트리스트(ValidationPipe)는 **AppModule 의 APP_PIPE 로 옮겼다** —
+  // bootstrap 에만 두면 테스트가 부팅하는 앱에는 적용되지 않아, 소유권 탈취를 막는
+  // 이 방어를 G-1 매트릭스도 G-3 시나리오도 검증하지 못한다(WP-15에서 발견).
   await app.listen(Number(process.env.PORT ?? 3001));
 }
 

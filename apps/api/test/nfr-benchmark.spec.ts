@@ -19,6 +19,7 @@ import { JwtTokenVerifier } from '../src/auth/jwt-token-verifier';
 import { AuthGuard } from '../src/authorization/guards/auth.guard';
 import { createPrisma, uid } from './support/test-app';
 import { seedRolesForTenant } from './support/matrix-fixture';
+import { ResourceLoaderRegistry } from '../src/authorization/resource-loader';
 
 jest.setTimeout(180_000);
 
@@ -63,6 +64,10 @@ describe('비기능 측정 (§11)', () => {
   });
 
   afterAll(async () => {
+    await prisma.$executeRaw`DELETE FROM audit.audit_logs WHERE tenant_id = ${TENANT}::uuid`;
+    await prisma.resourceGrant.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.domain.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.file.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.userRole.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.rolePermission.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.role.deleteMany({ where: { tenant_id: TENANT } });
@@ -133,5 +138,70 @@ describe('비기능 측정 (§11)', () => {
 
     console.log(`권한 회수 전파: ${elapsedMs}ms (목표 10,000ms 이내)`);
     expect(elapsedMs).toBeLessThan(10_000);
+  });
+
+  /**
+   * WP-15 DoD — **리소스형 API 의 p95 측정치 기록**(WT-28).
+   *
+   * 리소스형 요청은 캐시가 적중해도 **DB 왕복이 최소 3회**다: pv 대조 → 리소스 로드 →
+   * Grant 조회. 권한 평가 자체만 재는 기존 측정으로는 이 비용이 드러나지 않아,
+   * Phase 2 의 주력 API 가 목표를 지키는지 아무도 모르는 상태였다.
+   */
+  it('리소스형 API 대표 3종의 p95 를 측정해 기록한다 (WP-15 DoD)', async () => {
+    const owner = await prisma.user.create({
+      data: {
+        tenant_id: TENANT, email: `perf-${uid()}@t.local`, password_hash: 'x',
+        name: '성능', status: 'ACTIVE',
+      },
+    });
+    const file = await prisma.file.create({
+      data: {
+        tenant_id: TENANT, owner_id: owner.id, name: `perf-${uid()}.txt`,
+        storage_key: `${TENANT}/${uid()}`, size_bytes: 1n, mime_type: 'text/plain', checksum: 'c',
+      },
+    });
+    const domain = await prisma.domain.create({
+      data: {
+        tenant_id: TENANT, owner_id: owner.id,
+        fqdn: `perf-${uid()}.example.com`, status: 'UNVERIFIED',
+      },
+    });
+    const loader = new ResourceLoaderRegistry(p);
+
+    /** 실제 요청 경로를 재현한다: 스냅샷 조회 → 리소스 로드 → 평가 */
+    const measure = async (label: string, run: () => Promise<unknown>): Promise<number> => {
+      for (let i = 0; i < 20; i += 1) await run(); // 워밍업
+      const samples: number[] = [];
+      for (let i = 0; i < SAMPLES; i += 1) {
+        const t0 = process.hrtime.bigint();
+        await run();
+        samples.push(Number(process.hrtime.bigint() - t0) / 1e6);
+      }
+      const p95 = percentile(samples, 95);
+      console.log(`${label} p95: ${p95.toFixed(2)}ms (표본 ${SAMPLES})`);
+      return p95;
+    };
+
+    const results: Record<string, number> = {};
+    results['GET /files/:id'] = await measure('GET /files/:id', async () => {
+      const subject = await snapshots.forUser(owner.id);
+      const ref = await loader.load('file', file.id);
+      await authz.can(subject!, 'file.read', ref);
+    });
+    results['PATCH /files/:id'] = await measure('PATCH /files/:id', async () => {
+      const subject = await snapshots.forUser(owner.id);
+      const ref = await loader.load('file', file.id);
+      await authz.can(subject!, 'file.update', ref);
+    });
+    results['GET /domains/:id'] = await measure('GET /domains/:id', async () => {
+      const subject = await snapshots.forUser(owner.id);
+      const ref = await loader.load('domain', domain.id);
+      await authz.can(subject!, 'domain.read', ref);
+    });
+
+    // **목표 미달을 빌드 실패로 삼지 않는다** — 로컬·CI 하드웨어 편차가 크고, 성능 게이트는
+    // 전용 벤치 환경에서만 의미가 있다. 여기서는 측정치를 기록해 §11 대비 판단 근거를 남긴다.
+    console.log(`[WP-15 성능 기록] ${JSON.stringify(results)}`);
+    for (const value of Object.values(results)) expect(value).toBeGreaterThan(0);
   });
 });

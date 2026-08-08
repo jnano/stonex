@@ -47,7 +47,7 @@ export class AuthorizationService {
   async can(subject: SubjectSnapshot, permission: string, resource?: ResourceRef): Promise<Decision> {
     // 0. 주체 상태 검사 — 정지·탈퇴·미인증 계정 전면 차단
     if (subject.status !== 'ACTIVE') {
-      return { allow: false, step: 0, reason: `주체 상태 ${subject.status}` };
+      return { allow: false, step: 0, code: 'SUBJECT_NOT_ACTIVE', reason: `주체 상태 ${subject.status}` };
     }
 
     // 1. 리소스 상태 검사 (소프트 삭제·정지 리소스의 소유자/전역 경로 접근 차단)
@@ -60,7 +60,10 @@ export class AuthorizationService {
             gate.readExtra.statuses.includes(resource.status) &&
             gate.readExtra.permissions.includes(permission)));
       if (!accessible) {
-        return { allow: false, step: 1, reason: `리소스 상태 ${resource.type}:${resource.status} 접근 불가` };
+        return {
+          allow: false, step: 1, code: 'RESOURCE_STATE',
+          reason: `리소스 상태 ${resource.type}:${resource.status} 접근 불가`,
+        };
       }
     }
 
@@ -71,24 +74,24 @@ export class AuthorizationService {
     const now = Date.now();
     const valid = grantRows.filter((g) => g.expiresAt === null || g.expiresAt.getTime() > now);
     if (resource && valid.some((g) => g.effect === 'DENY')) {
-      return { allow: false, step: 2, reason: '명시적 DENY Grant' };
+      return { allow: false, step: 2, code: 'EXPLICIT_DENY', reason: '명시적 DENY Grant' };
     }
 
     // 3. 역할 기반 허용 (scope 해석 — §4.3)
     const scope = subject.permissions.get(permission);
     if (scope === 'global') {
-      return { allow: true, step: 3, reason: '역할 보유 (global)' };
+      return { allow: true, step: 3, code: 'ROLE_GLOBAL', reason: '역할 보유 (global)' };
     }
     if (scope === 'owned' && resource && resource.ownerId === subject.id) {
-      return { allow: true, step: 3, reason: '역할 보유 (owned, 소유자 일치)' };
+      return { allow: true, step: 3, code: 'ROLE_OWNED', reason: '역할 보유 (owned, 소유자 일치)' };
     }
 
     // 4. 리소스 Grant 허용 (만료되지 않은 ALLOW)
     if (resource && valid.some((g) => g.effect === 'ALLOW')) {
-      return { allow: true, step: 4, reason: 'ALLOW Grant' };
+      return { allow: true, step: 4, code: 'GRANT', reason: 'ALLOW Grant' };
     }
 
     // 5. Default Deny (INV-5)
-    return { allow: false, step: 5, reason: '해당 규칙 없음 (default deny)' };
+    return { allow: false, step: 5, code: 'DEFAULT_DENY', reason: '해당 규칙 없음 (default deny)' };
   }
 }

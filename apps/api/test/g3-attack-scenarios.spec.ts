@@ -314,6 +314,118 @@ describe('G-3 공격 시나리오 회귀 (§10.1)', () => {
     expect(access.status).toBe(404);
   });
 
+  it('ATK-14: 소유권 탈취 — 입력으로 owner_id 를 밀어 넣기 → DTO 화이트리스트로 차단', async () => {
+    // 소유자만 통과하는 게이트가 많으므로(owned scope), 입력으로 소유자를 바꿀 수 있으면
+    // 공유 수령자가 스스로 소유자가 되어 전 권한을 얻는다.
+    const owner = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const attacker = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const domain = await prisma.domain.create({
+      data: {
+        tenant_id: TENANT, owner_id: owner.userId as string,
+        fqdn: `atk14-${uid()}.example.com`, status: 'UNVERIFIED',
+      },
+    });
+
+    const res = await http()
+      .patch(`/api/v1/domains/${domain.id}`)
+      .set('Authorization', owner.authorization as string)
+      .send({ fqdn: `atk14b-${uid()}.example.com`, owner_id: attacker.userId, status: 'VERIFIED' });
+    // 전역 ValidationPipe(forbidNonWhitelisted)가 미지 필드를 거부한다
+    expect(res.status).toBe(400);
+
+    const after = await prisma.domain.findUniqueOrThrow({ where: { id: domain.id } });
+    expect(after.owner_id).toBe(owner.userId);
+    expect(after.status).toBe('UNVERIFIED');
+  });
+
+  it('ATK-15: 관리자가 자기 자신에게 Grant 부여 → 자기부여 금지로 차단', async () => {
+    // 관리 권한으로 자기 리소스 권한을 늘리는 가장 단순한 경로다.
+    const admin = await createActorForRole(prisma, tokens, TENANT, 'SUPER_ADMIN', roleIds);
+    const victim = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const file = await prisma.file.create({
+      data: {
+        tenant_id: TENANT, owner_id: victim.userId as string, name: `atk15-${uid()}.txt`,
+        storage_key: `${TENANT}/${uid()}`, size_bytes: 1n, mime_type: 'text/plain', checksum: 'c',
+      },
+    });
+
+    const res = await http()
+      .post(`/api/v1/admin/files/${file.id}/shares`)
+      .set('Authorization', admin.authorization as string)
+      .send({ subjectId: admin.userId, permissions: ['file.read'] });
+    expect(res.status).toBe(403);
+    expect(await prisma.resourceGrant.count({ where: { resource_id: file.id } })).toBe(0);
+  });
+
+  it('ATK-16: 소유권 이전으로 DENY 세탁 → 이전 시 DENY 승계로 차단', async () => {
+    // DENY 는 리소스에 걸린 제재다. 이전할 때 함께 지우면 소유권 왕복만으로 제재가 풀린다.
+    const owner = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const receiver = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const sanctioned = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const domain = await prisma.domain.create({
+      data: {
+        tenant_id: TENANT, owner_id: owner.userId as string,
+        fqdn: `atk16-${uid()}.example.com`, status: 'UNVERIFIED',
+      },
+    });
+    const readPerm = await prisma.permission.findUniqueOrThrow({ where: { code: 'domain.read' } });
+    await prisma.resourceGrant.create({
+      data: {
+        tenant_id: TENANT, subject_id: sanctioned.userId as string, resource_type: 'domain',
+        resource_id: domain.id, permission_id: readPerm.id, effect: 'DENY',
+        granted_by: owner.userId as string,
+      },
+    });
+
+    const proposed = await http()
+      .post(`/api/v1/domains/${domain.id}/transfers`)
+      .set('Authorization', owner.authorization as string)
+      .send({ toUserId: receiver.userId });
+    expect(proposed.status).toBeLessThan(400);
+
+    const accepted = await http()
+      .post(`/api/v1/transfers/${proposed.body.id}/accept`)
+      .set('Authorization', receiver.authorization as string);
+    expect(accepted.status).toBeLessThan(400);
+
+    // 소유자는 바뀌었지만 제재는 남는다
+    const remaining = await prisma.resourceGrant.findMany({ where: { resource_id: domain.id } });
+    expect(remaining.map((g) => g.effect)).toEqual(['DENY']);
+    const access = await http()
+      .get(`/api/v1/domains/${domain.id}`)
+      .set('Authorization', sanctioned.authorization as string);
+    expect(access.status).toBe(404);
+  });
+
+  it('ATK-17: DENY 를 정상 공유 요청으로 덮어쓰기 → 409 로 차단', async () => {
+    // UNIQUE 가 effect 를 제외하므로 UPSERT 로 구현하면 DENY 가 조용히 ALLOW 로 바뀐다.
+    const owner = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const sanctioned = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);
+    const file = await prisma.file.create({
+      data: {
+        tenant_id: TENANT, owner_id: owner.userId as string, name: `atk17-${uid()}.txt`,
+        storage_key: `${TENANT}/${uid()}`, size_bytes: 1n, mime_type: 'text/plain', checksum: 'c',
+      },
+    });
+    const readPerm = await prisma.permission.findUniqueOrThrow({ where: { code: 'file.read' } });
+    const deny = await prisma.resourceGrant.create({
+      data: {
+        tenant_id: TENANT, subject_id: sanctioned.userId as string, resource_type: 'file',
+        resource_id: file.id, permission_id: readPerm.id, effect: 'DENY',
+        granted_by: owner.userId as string,
+      },
+    });
+
+    const res = await http()
+      .post(`/api/v1/files/${file.id}/shares`)
+      .set('Authorization', owner.authorization as string)
+      .send({ subjectId: sanctioned.userId, permissions: ['file.read'] });
+    expect(res.status).toBe(409);
+
+    const after = await prisma.resourceGrant.findUniqueOrThrow({ where: { id: deny.id } });
+    expect(after.effect).toBe('DENY');
+  });
+
   it('ATK-12: 소프트 삭제된 리소스 접근 → 평가기 1단계 리소스 상태 게이트', async () => {
     // 소유자가 자기 파일을 삭제한 뒤에도 접근할 수 있으면, 삭제가 접근 통제상 무의미해진다.
     const owner = await createActorForRole(prisma, tokens, TENANT, 'MEMBER', roleIds);

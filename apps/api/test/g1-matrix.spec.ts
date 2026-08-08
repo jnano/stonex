@@ -106,6 +106,12 @@ const ENDPOINTS: Array<{
   { id: 'GET /admin/governance/freezes', method: 'get', path: '/api/v1/admin/governance/freezes' },
   { id: 'GET /admin/governance/anomalies', method: 'get', path: '/api/v1/admin/governance/anomalies' },
   { id: 'POST /admin/governance/freezes/:id/release', method: 'post', path: '/api/v1/admin/governance/freezes/{freeze}/release', body: {} },
+  // WP-15 ADM-4 감사 조회 · ADM-5 시뮬레이터
+  { id: 'GET /admin/audit-logs', method: 'get', path: '/api/v1/admin/audit-logs?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z' },
+  { id: 'POST /admin/simulate', method: 'post', path: '/api/v1/admin/simulate', body: { subjectId: '{target}', permission: 'file.read' } },
+  // CR-1 2FA 재등록 (step-up 필요)
+  { id: 'POST /auth/2fa/reenroll', method: 'post', path: '/api/v1/auth/2fa/reenroll', body: { password: 'x' } },
+  { id: 'POST /auth/2fa/reenroll/confirm', method: 'post', path: '/api/v1/auth/2fa/reenroll/confirm', body: { code: '000000' } },
   // 인증 API (전부 @Public — 비인증 행이 allow 여야 정상이며, 하나라도 deny 로 바뀌면 회귀다)
   { id: 'POST /auth/signup', method: 'post', path: '/api/v1/auth/signup', body: { email: 'm@t.local', password: 'x', name: 'n' } },
   { id: 'POST /auth/login', method: 'post', path: '/api/v1/auth/login', body: { email: 'm@t.local', password: 'x' } },
