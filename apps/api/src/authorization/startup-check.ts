@@ -34,6 +34,33 @@ export function findUndeclaredEndpoints(controllers: Array<new (...args: any[]) 
   return violations;
 }
 
+/**
+ * 선언된 전 라우트 목록을 `"METHOD /path"` 형태로 반환한다.
+ * G-1 매트릭스 등록 누락 검사가 이 목록을 정본으로 삼는다 —
+ * G-5 는 "권한 선언 누락"을 잡지만 "매트릭스 등록 누락"은 잡지 못하므로 별도 장치가 필요하다(R-7).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function listRoutes(controllers: Array<new (...args: any[]) => unknown>): string[] {
+  const METHOD_NAMES = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'ALL', 'OPTIONS', 'HEAD', 'SEARCH'];
+  const routes: string[] = [];
+  for (const controller of controllers) {
+    const base = String(Reflect.getMetadata(PATH_METADATA, controller) ?? '').replace(/^\/|\/$/g, '');
+    const prototype = controller.prototype as Record<string, unknown>;
+    for (const name of Object.getOwnPropertyNames(prototype)) {
+      if (name === 'constructor') continue;
+      const handler = prototype[name];
+      if (typeof handler !== 'function') continue;
+      const sub = Reflect.getMetadata(PATH_METADATA, handler);
+      const verb = Reflect.getMetadata(METHOD_METADATA, handler);
+      if (sub === undefined || verb === undefined) continue;
+      const suffix = String(sub).replace(/^\/|\/$/g, '');
+      const full = ['', base, suffix].filter((seg, i) => i === 0 || seg.length > 0).join('/') || '/';
+      routes.push(`${METHOD_NAMES[Number(verb)] ?? 'GET'} ${full}`);
+    }
+  }
+  return routes.sort();
+}
+
 /** 위반이 있으면 즉시 예외 — 서버 기동을 실패시킨다 */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function enforceEndpointDeclarations(controllers: Array<new (...args: any[]) => unknown>): void {

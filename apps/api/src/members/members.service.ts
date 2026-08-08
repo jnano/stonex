@@ -8,6 +8,7 @@ import { SnapshotService } from '../authorization/snapshot.service';
 import { checkDominance, checkRoleSubset } from '../authorization/dominance';
 import { SubjectSnapshot } from '../authorization/types';
 import { ResourceGrantService } from '../authorization/resource-grant.service';
+import { FilesService } from '../files/files.service';
 import { SuperAdminGuardService } from './super-admin-guard.service';
 import { MemberDetail, MemberSummary, toMemberDetail, toMemberSummary } from './member.serializer';
 
@@ -37,6 +38,7 @@ export class MembersService {
     private readonly snapshots: SnapshotService,
     private readonly superAdminGuard: SuperAdminGuardService,
     private readonly resourceGrants: ResourceGrantService,
+    private readonly files: FilesService,
   ) {}
 
   // ── MEM-2 목록·상세 ───────────────────────────────────────────
@@ -241,6 +243,19 @@ export class MembersService {
       await this.resourceGrants.cleanupForSubject(tx, targetUserId, {
         tenantId: actor.tenantId, actorId: actor.id,
       });
+      // MEM-6: 그 회원이 **소유한** 리소스도 처리한다(WT-17). 소유 파일을 남겨두면
+      // 기존 ALLOW Grant 보유자가 평가기 4단계로 무기한 접근할 수 있고, RI-4 로도 잡히지 않는다.
+      // 보유 수에 비례하는 무제한 쓰기를 막기 위해 상한을 두고, 초과분은 순찰이 이어받는다.
+      const owned = await this.files.softDeleteOwnedBy(tx, targetUserId, {
+        tenantId: actor.tenantId, actorId: actor.id,
+      });
+      if (owned.remaining > 0) {
+        await this.audit.record(tx, {
+          tenantId: actor.tenantId, actorId: actor.id, action: 'member.delete.owned_files.partial',
+          targetType: 'user', targetId: targetUserId,
+          detail: { before: {}, after: { processed: owned.processed, remaining: owned.remaining } },
+        });
+      }
       await this.permVersion.bumpInTx(tx, [targetUserId]);
       await this.audit.record(tx, {
         tenantId: actor.tenantId, actorId: actor.id, action: 'member.delete',
