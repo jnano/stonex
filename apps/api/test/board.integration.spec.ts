@@ -83,14 +83,14 @@ describe('게시판 코어 (WP-B1, 실 DB)', () => {
     grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p));
     policy = new BoardPolicyService(p, new PrismaGrantStore(p));
     boards = new BoardsService(p, audit, policy, grants);
-    const storage = new StorageService(new SettingsService(p, new AuditService()));
-    const attachments = new BoardAttachmentService(p, audit, storage, new UploadSessionService(p, storage), boards);
     const caps = new BoardCapabilitiesService(p);
+    const storage = new StorageService(new SettingsService(p, new AuditService()));
+    const attachments = new BoardAttachmentService(p, audit, storage, new UploadSessionService(p, storage), boards, caps);
     posts = new PostsService(
       p, audit, boards, attachments, new BoardTagsService(p, caps), new ViewCountService(p),
       new PostPolicyService(p, new PrismaGrantStore(p)), caps, new BoardEventBus(p),
     );
-    comments = new CommentsService(p, audit, boards, new BoardEventBus(p), new PostPolicyService(p, new PrismaGrantStore(p)), new CommentReactionsService(p, new BoardCapabilitiesService(p)));
+    comments = new CommentsService(p, audit, boards, new BoardEventBus(p), new PostPolicyService(p, new PrismaGrantStore(p)), new CommentReactionsService(p, caps), caps);
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'board-test' } });
     for (const code of [...MEMBER_CODES, 'board.moderate', 'board.moderate.all', 'board.manage']) {

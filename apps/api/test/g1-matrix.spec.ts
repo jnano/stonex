@@ -147,6 +147,8 @@ const ENDPOINTS: Array<{
   { id: 'GET /boards/:id/capabilities', method: 'get', path: '/api/v1/boards/{board}/capabilities' },
   { id: 'PATCH /boards/:id/capabilities', method: 'patch', path: '/api/v1/boards/{board}/capabilities', body: { key: 'reaction', enabled: true } },
   { id: 'POST /posts/:id/authors', method: 'post', path: '/api/v1/posts/{post}/authors', body: { userIds: [] } },
+  // WP-B9 답변 채택 (질문 작성자 한정 — 행위자는 작성자가 아니므로 전 행 deny 가 정상)
+  { id: 'POST /posts/:id/accept', method: 'post', path: '/api/v1/posts/{post}/accept', body: { commentId: '{rowComment}' } },
   // WP-B6 운영 행위·댓글 반응
   { id: 'POST /posts/:id/moderate', method: 'post', path: '/api/v1/posts/{rowModeratePost}/moderate', body: { pin: true } },
   // 전용 픽스처 — rowComment 는 앞의 DELETE /comments/:id 가 이미 소모한다
@@ -459,7 +461,8 @@ describe('G-1 권한 매트릭스', () => {
           JSON.stringify(endpoint.body ?? {})
             .replace('{memberRole}', memberRoleId)
             .replace('{target}', targetUserId)
-            .replace('{grantSubject}', grantSubjectId),
+            .replace('{grantSubject}', grantSubjectId)
+            .replace('{rowComment}', rowComments[actor.row]),
         );
 
         // 앞선 행의 부작용(비밀번호 변경 등의 pv 증가)이 이 행의 판정을 401 로 오염시키지

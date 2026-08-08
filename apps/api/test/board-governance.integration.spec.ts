@@ -68,6 +68,8 @@ describe('게시판 특화·거버넌스 (WP-B5, 실 DB)', () => {
   let bus: BoardEventBus;
   let notifications: BoardNotificationService;
   let patrol: BoardPatrolService;
+  let attachments: BoardAttachmentService;
+  let views: ViewCountService;
   let notifier: CollectingNotifier;
   let author: string;
   let reader: string;
@@ -95,20 +97,21 @@ describe('게시판 특화·거버넌스 (WP-B5, 실 DB)', () => {
     const grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p));
     const boardPolicy = new BoardPolicyService(p, new PrismaGrantStore(p));
     const postPolicy = new PostPolicyService(p, new PrismaGrantStore(p));
-    const capabilities = new BoardCapabilitiesService(p);
+    const caps = new BoardCapabilitiesService(p);
+    views = new ViewCountService(p);
     boards = new BoardsService(p, audit, boardPolicy, grants);
-    notifications = new BoardNotificationService(p, boardPolicy, postPolicy);
+    notifications = new BoardNotificationService(p, boardPolicy, postPolicy, caps);
     bus = new BoardEventBus(p);
     bus.register(notifications);
     const storage = new StorageService(new SettingsService(p, new AuditService()));
-    const attachments = new BoardAttachmentService(p, audit, storage, new UploadSessionService(p, storage), boards);
+    attachments = new BoardAttachmentService(p, audit, storage, new UploadSessionService(p, storage), boards, caps);
     posts = new PostsService(
-      p, audit, boards, attachments, new BoardTagsService(p, capabilities), new ViewCountService(p),
-      postPolicy, capabilities, bus,
+      p, audit, boards, attachments, new BoardTagsService(p, caps), views,
+      postPolicy, caps, bus,
     );
-    comments = new CommentsService(p, audit, boards, bus, postPolicy, new CommentReactionsService(p, capabilities));
+    comments = new CommentsService(p, audit, boards, bus, postPolicy, new CommentReactionsService(p, caps), caps);
     search = new BoardSearchService(p, boards, postPolicy);
-    reports = new BoardReportsService(p, audit, capabilities);
+    reports = new BoardReportsService(p, audit, caps);
     notifier = new CollectingNotifier();
     patrol = new BoardPatrolService(p, notifier);
 
@@ -125,6 +128,7 @@ describe('게시판 특화·거버넌스 (WP-B5, 실 DB)', () => {
     await prisma.boardNotification.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.boardOutboxEvent.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.boardReport.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.post.updateMany({ where: { tenant_id: TENANT }, data: { accepted_comment_id: null } });
     await prisma.postSecretReader.deleteMany({});
     await prisma.postAuthor.deleteMany({});
     await prisma.userBlock.deleteMany({});
@@ -314,6 +318,92 @@ describe('게시판 특화·거버넌스 (WP-B5, 실 DB)', () => {
     expect(await comments.list(snapshot(author), post.id)).toEqual([]);
     // 행 자체는 남는다 — 감사·path 무결성 보존
     expect(await prisma.comment.count({ where: { post_id: post.id } })).toBe(3);
+  });
+
+  it('WP-B7: 기능모듈을 끄면 서버가 실제로 막는다 — 화면이 감추는 것만으로는 부족하다', async () => {
+    const board = await makeBoard('FORUM'); // 전 기능 활성 프리셋
+    const post = await posts.create(snapshot(author), board.id, { title: 'p', bodyMd: 'x' });
+    const off = async (key: string) => {
+      await prisma.boardCapability.upsert({
+        where: { board_id_capability_key: { board_id: board.id, capability_key: key } },
+        update: { enabled: false },
+        create: { board_id: board.id, capability_key: key, enabled: false },
+      });
+    };
+
+    // ① 첨부 — 업로드 세션 자체를 내주지 않는다(주소를 직접 쳐도 열리지 않는다)
+    await off('attachment');
+    await expect(
+      attachments.issueUpload(snapshot(author), board.id, { contentType: 'image/png', contentLength: 10 }),
+    ).rejects.toMatchObject({ status: 404 });
+
+    // ② 공동작성 — 지정 자체가 막힌다
+    await off('co-author');
+    await expect(posts.setCoAuthors(snapshot(author), post.id, [reader]))
+      .rejects.toMatchObject({ status: 404 });
+
+    // ③ 조회수 — 상세를 열어도 세지 않는다
+    await off('view-count');
+    const before = Number((await prisma.post.findUniqueOrThrow({ where: { id: post.id } })).view_count);
+    await posts.detail(snapshot(reader), post.id);
+    await views.flush();
+    expect(Number((await prisma.post.findUniqueOrThrow({ where: { id: post.id } })).view_count)).toBe(before);
+
+    // ④ 알림 — 이벤트는 커밋되지만 소비 단계에서 멈춘다
+    await off('notification');
+    await comments.create(snapshot(reader), post.id, { bodyMd: '댓글' });
+    await bus.tick();
+    expect(await prisma.boardNotification.count({ where: { user_id: author } })).toBe(0);
+  });
+
+  it('WP-B7: 게시판 응답이 설정·활성 기능모듈을 함께 준다 — 화면이 표현을 정하는 근거(§5)', async () => {
+    const faq = await makeBoard('FAQ');
+    const detail = await boards.detail(snapshot(adminUser, ['board.manage', 'board.moderate.all']), faq.id);
+
+    // FAQ 프리셋: 운영자만 작성, 댓글 없음, tag 만 활성
+    expect(detail.settings.write_policy).toBe('MODERATOR');
+    expect(detail.settings.comment.enabled).toBe(false);
+    expect(detail.capabilities).toContain('tag');
+    expect(detail.capabilities).not.toContain('reaction');
+    expect(detail.capabilities).not.toContain('report');
+  });
+
+  it('WP-B9: Q&A 답변 채택 — 질문자만, 자기 답변 불가, 토글, 미해결 필터, 답변자 알림', async () => {
+    const qna = await makeBoard('QNA');
+    const question = await posts.create(snapshot(author), qna.id, { title: '질문', bodyMd: 'x' });
+    const answer = await comments.create(snapshot(reader), question.id, { bodyMd: '답변입니다' });
+    const myOwn = await comments.create(snapshot(author), question.id, { bodyMd: '자문자답' });
+
+    // 미해결 상태 — 필터에 잡힌다
+    expect((await posts.detail(snapshot(author), question.id)).acceptedCommentId).toBeNull();
+    const unanswered = await posts.list(snapshot(author), qna.id, { unansweredOnly: true });
+    expect(unanswered.items.some((i) => i.id === question.id)).toBe(true);
+
+    // 질문자가 아니면 채택할 수 없다(404 은닉), 자기 답변도 안 된다(403)
+    await expect(posts.acceptAnswer(snapshot(outsider), question.id, answer.id))
+      .rejects.toMatchObject({ status: 404 });
+    await expect(posts.acceptAnswer(snapshot(author), question.id, myOwn.id))
+      .rejects.toMatchObject({ status: 403 });
+
+    // 채택 → 해결됨 + 미해결 필터에서 빠짐
+    const accepted = await posts.acceptAnswer(snapshot(author), question.id, answer.id);
+    expect(accepted.acceptedCommentId).toBe(answer.id);
+    const afterAccept = await posts.list(snapshot(author), qna.id, { unansweredOnly: true });
+    expect(afterAccept.items.some((i) => i.id === question.id)).toBe(false);
+
+    // 답변자에게 알림이 간다 — 질문자 자신에게는 가지 않는다
+    await bus.tick();
+    expect(await prisma.boardNotification.count({ where: { user_id: reader, kind: 'answer.accepted' } })).toBe(1);
+    expect(await prisma.boardNotification.count({ where: { user_id: author, kind: 'answer.accepted' } })).toBe(0);
+
+    // 같은 답변을 다시 채택하면 해제(토글) — 미해결로 돌아간다
+    expect((await posts.acceptAnswer(snapshot(author), question.id, answer.id)).acceptedCommentId).toBeNull();
+
+    // accepted-answer 가 꺼진 게시판(FORUM 프리셋에는 없다)에서는 채택 자체가 없다
+    const forum = await makeBoard('FORUM');
+    const plain = await posts.create(snapshot(author), forum.id, { title: 'p', bodyMd: 'x' });
+    const c2 = await comments.create(snapshot(reader), plain.id, { bodyMd: 'c' });
+    await expect(posts.acceptAnswer(snapshot(author), plain.id, c2.id)).rejects.toMatchObject({ status: 404 });
   });
 
   it('§12 BRI 순찰: 고아 첨부를 정리하고 카운터를 보정하며, 보정 불가 위반은 보고된다', async () => {

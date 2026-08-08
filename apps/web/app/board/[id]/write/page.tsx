@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { endpoints, errorText, type Attachment } from '../../../../lib/api';
+import { endpoints, errorText, type Attachment, type BoardSummary } from '../../../../lib/api';
 import { Banner, Card, Shell, s } from '../../../../lib/ui';
 
 /**
@@ -21,6 +21,7 @@ export default function WritePostPage() {
   const [title, setTitle] = useState('');
   const [bodyMd, setBodyMd] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [board, setBoard] = useState<BoardSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -51,6 +52,18 @@ export default function WritePostPage() {
     },
     [params?.id],
   );
+
+  useEffect(() => {
+    if (!params?.id) return;
+    // 첨부 허용 여부·상한은 게시판 설정을 따른다(§5) — 서버도 같은 값으로 강제한다
+    void endpoints.board(params.id).then(setBoard).catch(() => undefined);
+  }, [params?.id]);
+
+  const attachmentsEnabled =
+    board === null
+      ? true
+      : board.capabilities.includes('attachment') && board.settings.editor.attachments;
+  const maxAttachments = board?.settings.editor.max_attachments ?? 10;
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -109,7 +122,7 @@ export default function WritePostPage() {
             style={{ ...s.input, fontFamily: 'inherit', resize: 'vertical' }}
           />
 
-          <div
+          {attachmentsEnabled && <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={onDrop}
@@ -120,8 +133,9 @@ export default function WritePostPage() {
               background: dragOver ? '#eff6ff' : 'transparent',
             }}
           >
-            파일을 여기에 끌어다 놓으면 첨부됩니다 (이미지는 서버에서 EXIF 제거·재인코딩)
-          </div>
+            파일을 여기에 끌어다 놓으면 첨부됩니다 — 최대 {maxAttachments}개
+            (이미지는 서버에서 EXIF 제거·재인코딩)
+          </div>}
 
           {attachments.length > 0 && (
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>

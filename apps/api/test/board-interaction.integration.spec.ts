@@ -77,16 +77,16 @@ describe('게시판 상호작용 (WP-B3, 실 DB)', () => {
     const policy = new BoardPolicyService(p, new PrismaGrantStore(p));
     boards = new BoardsService(p, audit, policy, grants);
     capabilities = new BoardCapabilitiesService(p);
-    notifications = new BoardNotificationService(p, policy, new PostPolicyService(p, new PrismaGrantStore(p)));
+    notifications = new BoardNotificationService(p, policy, new PostPolicyService(p, new PrismaGrantStore(p)), capabilities);
     bus = new BoardEventBus(p);
     bus.register(notifications);
     const storage = new StorageService(new SettingsService(p, new AuditService()));
-    const attachments = new BoardAttachmentService(p, audit, storage, new UploadSessionService(p, storage), boards);
+    const attachments = new BoardAttachmentService(p, audit, storage, new UploadSessionService(p, storage), boards, capabilities);
     posts = new PostsService(
       p, audit, boards, attachments, new BoardTagsService(p, capabilities), new ViewCountService(p),
       new PostPolicyService(p, new PrismaGrantStore(p)), capabilities, bus,
     );
-    comments = new CommentsService(p, audit, boards, bus, new PostPolicyService(p, new PrismaGrantStore(p)), new CommentReactionsService(p, capabilities));
+    comments = new CommentsService(p, audit, boards, bus, new PostPolicyService(p, new PrismaGrantStore(p)), new CommentReactionsService(p, capabilities), capabilities);
     reactions = new BoardReactionsService(p, audit, capabilities, bus);
 
     // 다른 스펙(실제 AppModule 을 띄우는 매트릭스 등)이 남긴 outbox·알림 잔재를 비운다 —

@@ -587,6 +587,13 @@ matrix:
     DOMAIN_MANAGER: deny
     OPERATOR: deny
     SUPER_ADMIN: deny
+  "POST /posts/:id/accept":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
   "POST /posts/:id/moderate":
     anonymous: deny
     MEMBER: deny

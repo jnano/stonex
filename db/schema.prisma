@@ -461,6 +461,13 @@ model Post {
   comment_count BigInt    @default(0)
   view_count    BigInt    @default(0) // WP-B4 — 요청 경로 쓰기 금지, 버퍼 주기 플러시
   is_secret     Boolean   @default(false) // WP-B5 secret-post — canReadPost 훅이 판정(§6.5)
+  /**
+   * 채택된 답변 댓글 (WP-B9 accepted-answer, §5.2 QNA 프리셋).
+   * 답변은 **댓글이 곧 답변**이다 — 별도 리소스를 만들지 않아 반응·대댓글·알림·멘션이
+   * 그대로 재사용된다. 채택은 질문당 1개이며 질문 작성자만 바꾼다.
+   * NULL = 미해결 — 목록에서 미해결 질문을 가려내는 기준이 된다.
+   */
+  accepted_comment_id String? @db.Uuid
   created_at    DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
   updated_at    DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
   deleted_at    DateTime? @db.Timestamptz()
