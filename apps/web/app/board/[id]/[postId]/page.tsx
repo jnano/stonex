@@ -44,6 +44,15 @@ export default function PostPage() {
             {post.updatedAt !== post.createdAt && ' (수정됨)'}
           </div>
           <div dangerouslySetInnerHTML={{ __html: post.bodyHtml }} />
+          {post.attachments.length > 0 && (
+            <ul style={{ marginTop: 16, paddingLeft: 18, fontSize: 13 }}>
+              {post.attachments.map((a) => (
+                <li key={a.fileId}>
+                  📎 {a.name} ({Math.ceil(a.sizeBytes / 1024)}KB)
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       )}
 

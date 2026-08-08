@@ -28,8 +28,11 @@ export default function BoardPostsPage() {
   return (
     <Shell title={board ? board.name : '게시판'}>
       <Banner error={error} message={null} />
-      <p style={s.muted}>
-        <Link href="/board">← 게시판 목록</Link>
+      <p style={{ ...s.row, justifyContent: 'space-between' }}>
+        <Link href="/board" style={s.muted}>← 게시판 목록</Link>
+        {board?.status === 'ACTIVE' && (
+          <Link href={`/board/${params?.id}/write`} style={{ fontWeight: 600 }}>글 쓰기</Link>
+        )}
       </p>
       {loaded && items.length === 0 && !error && <Empty>아직 게시글이 없습니다.</Empty>}
       {items.map((post) => (

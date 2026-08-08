@@ -1,11 +1,13 @@
 import {
   Body, Controller, Delete, Get, Param, Patch, Post as HttpPost, Query, Req, UnauthorizedException,
 } from '@nestjs/common';
-import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, Length } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Min } from 'class-validator';
 import { AuthenticatedOnly, RequirePermission } from '../authorization/decorators';
 import { AuthedRequest } from '../authorization/guards/auth.guard';
 import { SubjectSnapshot } from '../authorization/types';
 import { BoardSummary, BoardsService } from './boards.service';
+import { AttachmentResult, BoardAttachmentService } from './board-attachment.service';
+import { UploadTicket } from '../storage/upload-session.service';
 import { PostDetail, PostSummary, PostsService } from './posts.service';
 import { CommentView, CommentsService } from './comments.service';
 
@@ -41,12 +43,25 @@ class CreatePostDto {
   @IsString() @Length(1, 300) title!: string;
   @IsString() @Length(1, 100_000) bodyMd!: string;
   @IsOptional() @IsBoolean() draft?: boolean;
+  @IsOptional() @IsUUID(undefined, { each: true }) attachmentFileIds?: string[];
 }
 
 class UpdatePostDto {
   @IsOptional() @IsString() @Length(1, 300) title?: string;
   @IsOptional() @IsString() @Length(1, 100_000) bodyMd?: string;
   @IsOptional() @IsBoolean() publish?: boolean;
+  @IsOptional() @IsUUID(undefined, { each: true }) attachmentFileIds?: string[];
+}
+
+class IssueUploadDto {
+  @IsString() @Length(1, 127) contentType!: string;
+  @IsInt() @Min(1) contentLength!: number;
+}
+
+class CompleteUploadDto {
+  @IsUUID() uploadId!: string;
+  @IsString() @Length(1, 64) checksum!: string;
+  @IsString() @Length(1, 255) name!: string;
 }
 
 class CreateCommentDto {
@@ -69,6 +84,7 @@ export class BoardsController {
   constructor(
     private readonly boards: BoardsService,
     private readonly posts: PostsService,
+    private readonly attachments: BoardAttachmentService,
   ) {}
 
   @AuthenticatedOnly()
@@ -134,6 +150,27 @@ export class BoardsController {
     @Query('size') size?: string,
   ): Promise<{ items: PostSummary[]; total: number }> {
     return this.posts.list(subjectOf(req), id, Number(page ?? 1), Number(size ?? 20));
+  }
+
+  /** 드래그앤드랍 첨부 세션 (§7.2) — 쓰기 가능한 게시판에서만. 응답에 storage_key 없음 */
+  @RequirePermission('file.upload', { resource: { type: 'board', param: 'id' } })
+  @HttpPost(':id/uploads')
+  async issueUpload(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: IssueUploadDto,
+  ): Promise<UploadTicket> {
+    return this.attachments.issueUpload(subjectOf(req), id, body);
+  }
+
+  /** 업로드 완료 콜백 — 입력은 upload_id 뿐(R-B7). 이미지는 재인코딩을 통과해야 첨부다 */
+  @RequirePermission('file.upload')
+  @HttpPost('attachments/complete')
+  async completeUpload(
+    @Req() req: AuthedRequest,
+    @Body() body: CompleteUploadDto,
+  ): Promise<AttachmentResult> {
+    return this.attachments.completeUpload(subjectOf(req), body);
   }
 
   @RequirePermission('board.write', { resource: { type: 'board', param: 'id' } })

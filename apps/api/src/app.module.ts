@@ -33,6 +33,7 @@ import { BoardPolicyService } from './board/board-policy.service';
 import { BoardsService } from './board/boards.service';
 import { PostsService } from './board/posts.service';
 import { CommentsService } from './board/comments.service';
+import { BoardAttachmentService } from './board/board-attachment.service';
 import { AuthGuard, TOKEN_VERIFIER } from './authorization/guards/auth.guard';
 import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
@@ -182,6 +183,7 @@ import {
     BoardsService,
     PostsService,
     CommentsService,
+    BoardAttachmentService,
     /**
      * 메일 발송 — **설정은 DB 한 곳에서 온다**(범용 배포 지원).
      * 환경 변수 폴백을 두지 않는 이유는, 두 곳에서 읽으면 "화면에는 A 인데 실제로는 B" 상태가

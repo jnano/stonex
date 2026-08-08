@@ -496,6 +496,20 @@ matrix:
     DOMAIN_MANAGER: allow
     OPERATOR: allow
     SUPER_ADMIN: allow
+  "POST /boards/:id/uploads":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "POST /boards/attachments/complete":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
   "POST /boards/:id/posts":
     anonymous: deny
     MEMBER: allow

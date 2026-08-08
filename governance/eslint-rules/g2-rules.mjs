@@ -45,4 +45,13 @@ export const g2WebRestrictedSyntax = [
       "CallExpression[callee.property.name=/^(some|find|filter|includes)$/][callee.object.property.name='permissions']",
     message: WEB_MSG,
   },
+  // ── board 모듈 기여 (WP-B2, R-B2): body_md 프론트 직접 렌더 금지 ──
+  // 표시는 서버가 렌더·새니타이즈한 body_html 만 쓴다. 프론트에 마크다운 렌더러를
+  // 들이는 순간 새니타이즈 위치가 둘로 갈라져 우회 경로가 된다(스펙 §7.1).
+  {
+    selector:
+      "ImportDeclaration[source.value=/^(markdown-it|marked|react-markdown|remark|showdown|micromark)/]",
+    message:
+      '프론트에서 마크다운을 직접 렌더하지 마십시오(R-B2). 표시는 서버 렌더 캐시(bodyHtml)만 사용합니다.',
+  },
 ];

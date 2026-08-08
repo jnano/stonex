@@ -24,6 +24,10 @@ import { SubjectSnapshot } from '../src/authorization/types';
 import { BoardPolicyService } from '../src/board/board-policy.service';
 import { BoardsService } from '../src/board/boards.service';
 import { PostsService } from '../src/board/posts.service';
+import { BoardAttachmentService } from '../src/board/board-attachment.service';
+import { StorageService } from '../src/storage/storage.service';
+import { UploadSessionService } from '../src/storage/upload-session.service';
+import { SettingsService } from '../src/settings/settings.service';
 import { CommentsService } from '../src/board/comments.service';
 import { BoardOwnerCleanupHook } from '../src/board/board.cleanup';
 import { OwnerCleanupRegistry } from '../src/authorization/owner-cleanup';
@@ -75,7 +79,9 @@ describe('게시판 코어 (WP-B1, 실 DB)', () => {
     grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p));
     policy = new BoardPolicyService(p, new PrismaGrantStore(p));
     boards = new BoardsService(p, audit, policy, grants);
-    posts = new PostsService(p, audit, boards);
+    const storage = new StorageService(new SettingsService(p, new AuditService()));
+    const attachments = new BoardAttachmentService(p, audit, storage, new UploadSessionService(p, storage), boards);
+    posts = new PostsService(p, audit, boards, attachments);
     comments = new CommentsService(p, audit, boards);
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'board-test' } });
@@ -97,6 +103,8 @@ describe('게시판 코어 (WP-B1, 실 DB)', () => {
     await prisma.post.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.boardMember.deleteMany({});
     await prisma.board.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.postAttachment.deleteMany({});
+    await prisma.file.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.$executeRaw`DELETE FROM audit.audit_logs WHERE tenant_id = ${TENANT}::uuid`;
     await prisma.user.deleteMany({ where: { tenant_id: TENANT, id: { notIn: [adminId, memberId] } } });
   });
@@ -217,6 +225,37 @@ describe('게시판 코어 (WP-B1, 실 DB)', () => {
     await comments.softDelete(writer, child.id);
     const after = await comments.list(writer, post.id);
     expect(after.find((c) => c.id === child.id)).toBeUndefined();
+  });
+
+  it('첨부는 본인 소유 파일만 링크할 수 있다 (R-B7 — 타인 파일 노출 차단)', async () => {
+    const writer = snapshot(memberId, MEMBER_CODES);
+    const board = await makeBoard('PUBLIC');
+    const mine = await prisma.file.create({
+      data: {
+        tenant_id: TENANT, owner_id: memberId, name: 'mine.png',
+        storage_key: `${TENANT}/${uid()}`, size_bytes: 10n, mime_type: 'image/png', checksum: 'c',
+      },
+    });
+    const theirs = await prisma.file.create({
+      data: {
+        tenant_id: TENANT, owner_id: adminId, name: 'theirs.png',
+        storage_key: `${TENANT}/${uid()}`, size_bytes: 10n, mime_type: 'image/png', checksum: 'c',
+      },
+    });
+
+    const post = await posts.create(writer, board.id, {
+      title: 't', bodyMd: 'b', attachmentFileIds: [mine.id],
+    });
+    expect(post.attachments.map((a) => a.fileId)).toEqual([mine.id]);
+
+    // 타인 파일을 끼워 넣으면 전체 거부 — 어느 것이 남의 것인지도 알려주지 않는다(§10.2)
+    await expect(
+      posts.create(writer, board.id, { title: 't2', bodyMd: 'b', attachmentFileIds: [mine.id, theirs.id] }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    // 글 삭제는 링크만 끊는다 — 파일 실체(타인 소유 규칙)는 건드리지 않는다(§4.1)
+    await posts.softDelete(writer, post.id);
+    expect((await prisma.file.findUniqueOrThrow({ where: { id: mine.id } })).deleted_at).toBeNull();
   });
 
   it('회원 삭제 시 게시글·댓글이 훅으로 정리된다 (WP-K2 연동 — 커널 코드는 board 를 모른다)', async () => {
