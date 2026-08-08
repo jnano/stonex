@@ -14,6 +14,8 @@ export default function BoardPostsPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<PostSummary[] | null>(null);
 
   useEffect(() => {
     if (!params?.id) return;
@@ -26,6 +28,18 @@ export default function BoardPostsPage() {
       .catch((e) => setError(errorText(e, '게시판을 불러오지 못했습니다.')))
       .finally(() => setLoaded(true));
   }, [params?.id]);
+
+  const runSearch = () => {
+    if (!params?.id) return;
+    if (query.trim().length < 2) {
+      setResults(null);
+      return;
+    }
+    void endpoints
+      .searchPosts(params.id, query)
+      .then(setResults)
+      .catch((e) => setError(errorText(e, '검색에 실패했습니다.')));
+  };
 
   const loadMore = () => {
     if (!params?.id || !nextCursor) return;
@@ -47,8 +61,26 @@ export default function BoardPostsPage() {
           <Link href={`/board/${params?.id}/write`} style={{ fontWeight: 600 }}>글 쓰기</Link>
         )}
       </p>
-      {loaded && items.length === 0 && !error && <Empty>아직 게시글이 없습니다.</Empty>}
-      {items.map((post) => (
+      <div style={{ ...s.row, marginBottom: 12 }}>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
+          placeholder="검색 (2자 이상)"
+          style={{ ...s.input, flex: 1 }}
+        />
+        <button onClick={runSearch} style={s.button}>검색</button>
+        {results !== null && (
+          <button onClick={() => { setResults(null); setQuery(''); }} style={s.button}>초기화</button>
+        )}
+      </div>
+      {results !== null && (
+        <p style={s.muted}>검색 결과 {results.length}건</p>
+      )}
+      {loaded && (results ?? items).length === 0 && !error && (
+        <Empty>{results !== null ? '검색 결과가 없습니다.' : '아직 게시글이 없습니다.'}</Empty>
+      )}
+      {(results ?? items).map((post) => (
         <Card key={post.id}>
           <div style={{ ...s.row, justifyContent: 'space-between' }}>
             <div>
@@ -59,12 +91,12 @@ export default function BoardPostsPage() {
               {post.status === 'DRAFT' && <span style={{ ...s.muted, marginLeft: 6 }}>(임시저장)</span>}
             </div>
             <span style={{ ...s.muted, fontSize: 12 }}>
-              댓글 {post.commentCount} · {new Date(post.createdAt).toLocaleDateString('ko-KR')}
+              댓글 {post.commentCount} · 조회 {post.viewCount} · {new Date(post.createdAt).toLocaleDateString('ko-KR')}
             </span>
           </div>
         </Card>
       ))}
-      {nextCursor && (
+      {results === null && nextCursor && (
         <p style={{ textAlign: 'center' }}>
           <button onClick={loadMore} style={s.button}>더 보기</button>
         </p>

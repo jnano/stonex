@@ -316,6 +316,7 @@ export interface PostSummary {
   title: string;
   isPinned: boolean;
   commentCount: number;
+  viewCount: number;
   status: string;
   createdAt: string;
 }
@@ -398,6 +399,8 @@ export const endpoints = {
       `/boards/${boardId}/posts${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
   post: (id: string) => api<PostDetail>(`/posts/${id}`),
+  searchPosts: (boardId: string, q: string) =>
+    api<PostSummary[]>(`/boards/${boardId}/search?q=${encodeURIComponent(q)}`),
   postComments: (id: string) => api<CommentView[]>(`/posts/${id}/comments`),
   createPost: (boardId: string, body: { title: string; bodyMd: string; attachmentFileIds?: string[] }) =>
     api<PostDetail>(`/boards/${boardId}/posts`, { method: 'POST', body: JSON.stringify(body) }),

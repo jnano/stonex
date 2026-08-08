@@ -10,6 +10,7 @@
  *  - 회원 삭제 시 게시글·댓글이 훅으로 정리된다 (WP-K2 연동 — 커널은 board 를 모른다)
  *  - 자식 있는 댓글 삭제는 tombstone 으로 트리를 보존한다(§4.1)
  */
+import { ViewCountService } from '../src/board/view-count.service';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { config } from 'dotenv';
@@ -83,7 +84,7 @@ describe('게시판 코어 (WP-B1, 실 DB)', () => {
     boards = new BoardsService(p, audit, policy, grants);
     const storage = new StorageService(new SettingsService(p, new AuditService()));
     const attachments = new BoardAttachmentService(p, audit, storage, new UploadSessionService(p, storage), boards);
-    posts = new PostsService(p, audit, boards, attachments, new BoardTagsService(p, new BoardCapabilitiesService(p)));
+    posts = new PostsService(p, audit, boards, attachments, new BoardTagsService(p, new BoardCapabilitiesService(p)), new ViewCountService(p));
     comments = new CommentsService(p, audit, boards, new BoardEventBus(p));
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'board-test' } });

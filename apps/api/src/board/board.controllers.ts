@@ -11,6 +11,7 @@ import { UploadTicket } from '../storage/upload-session.service';
 import { PostDetail, PostSummary, PostsService } from './posts.service';
 import { CommentView, CommentsService } from './comments.service';
 import { BoardReactionsService, ReactionSummary } from './capabilities.service';
+import { BoardSearchService } from './search.service';
 import { BoardNotificationService, NotificationView } from './notification.service';
 
 /**
@@ -93,6 +94,7 @@ export class BoardsController {
     private readonly boards: BoardsService,
     private readonly posts: PostsService,
     private readonly attachments: BoardAttachmentService,
+    private readonly search: BoardSearchService,
   ) {}
 
   @AuthenticatedOnly()
@@ -147,6 +149,17 @@ export class BoardsController {
   ): Promise<{ ok: true }> {
     await this.boards.removeMember(subjectOf(req), id, userId);
     return { ok: true };
+  }
+
+  /** 게시판 내 검색 (§8.1) — 목록과 같은 게이트·행 조건. 비가시 게시판은 404(R-B8) */
+  @AuthenticatedOnly()
+  @Get(':id/search')
+  async searchPosts(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Query('q') q?: string,
+  ): Promise<PostSummary[]> {
+    return this.search.search(subjectOf(req), id, q ?? '');
   }
 
   @AuthenticatedOnly()
