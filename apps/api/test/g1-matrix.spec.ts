@@ -29,6 +29,8 @@ const TENANT = '00000000-0000-0000-0000-000000009993';
  */
 const ENDPOINTS: Array<{ id: string; method: 'get' | 'post' | 'patch' | 'put' | 'delete'; path: string; body?: object }> = [
   { id: 'GET /health', method: 'get', path: '/api/v1/health' },
+  { id: 'GET /health/live', method: 'get', path: '/api/v1/health/live' },
+  { id: 'GET /health/ready', method: 'get', path: '/api/v1/health/ready' },
   { id: 'GET /me', method: 'get', path: '/api/v1/me' },
   { id: 'GET /members', method: 'get', path: '/api/v1/members' },
   { id: 'GET /members/me', method: 'get', path: '/api/v1/members/me' },
@@ -134,8 +136,11 @@ describe('G-1 권한 매트릭스', () => {
     const anonymousAllowed = Object.entries(golden)
       .filter(([, row]) => row.anonymous === 'allow')
       .map(([id]) => id);
-    // 현재 공개 API 는 헬스체크뿐이다. 보호 API 가 실수로 @Public 이 되면 이 목록이 늘어난다
-    expect(anonymousAllowed).toEqual(['GET /health']);
+    // 공개 API 는 헬스체크 계열뿐이다. **이 목록이 늘어나는 것은 공개 표면이 넓어졌다는 뜻이므로,
+    // 보호 API 가 실수로 @Public 이 되면 여기서 반드시 실패한다.** 목록 수정은 의도적 승인 행위다.
+    // (WP-9에서 liveness/readiness 를 분리하며 2건이 추가됐다 — 의존성 상태를 로드밸런서에 알리는
+    //  용도이며 인증을 요구하면 목적을 잃는다.)
+    expect(anonymousAllowed).toEqual(['GET /health', 'GET /health/live', 'GET /health/ready']);
   });
 });
 
