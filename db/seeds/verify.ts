@@ -63,7 +63,10 @@ async function main(): Promise<void> {
       for (const e of errors) console.error(`  - ${e}`);
       process.exit(1);
     }
-    console.log('시드 검증 통과: 기획서 §4.4(26종)·§4.5(5역할) 표와 DB 상태 일치, SUPER_ADMIN 온보딩 플래그 확인');
+    console.log(
+      `시드 검증 통과: 기획서 §4.4(Permission ${PERMISSIONS.length}종)·§4.5(역할 ${ROLES.length}종) 표와 DB 상태 일치, ` +
+        'SUPER_ADMIN 온보딩 플래그 확인',
+    );
   } finally {
     await prisma.$disconnect();
   }

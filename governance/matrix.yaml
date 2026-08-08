@@ -13,6 +13,20 @@ matrix:
     DOMAIN_MANAGER: allow
     OPERATOR: allow
     SUPER_ADMIN: allow
+  "GET /health/live":
+    anonymous: allow
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /health/ready":
+    anonymous: allow
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
   "GET /me":
     anonymous: deny
     MEMBER: allow

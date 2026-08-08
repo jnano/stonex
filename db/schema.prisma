@@ -30,6 +30,7 @@ model Tenant {
   resource_grants  ResourceGrant[]
   files            File[]
   domains          Domain[]
+  file_uploads     FileUpload[]
 
   @@map("tenants")
 }
@@ -60,6 +61,7 @@ model User {
   domains        Domain[]
   refresh_tokens RefreshToken[]
   verification_tokens VerificationToken[]
+  file_uploads        FileUpload[]
 
   @@unique([tenant_id, email])
   @@map("users")
@@ -191,6 +193,28 @@ model Domain {
 
   @@unique([tenant_id, fqdn])
   @@map("domains")
+}
+
+// 업로드 세션 (WP-9) — 서명 URL 발급 시점의 조건을 서버가 보관한다.
+// 완료 콜백은 불투명 upload_id 만 받으며 storage_key 는 클라이언트에 노출되지 않는다(§10.2).
+model FileUpload {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id     String    @db.Uuid
+  requester_id  String    @db.Uuid
+  storage_key   String    @db.VarChar(512) // 외부 노출 금지
+  expected_mime String    @db.VarChar(127)
+  max_bytes     BigInt
+  state         String    @default("PENDING") @db.VarChar(20) // PENDING | COMPLETED | EXPIRED | ABORTED
+  expires_at    DateTime  @db.Timestamptz()
+  completed_at  DateTime? @db.Timestamptz()
+  created_at    DateTime  @default(now()) @db.Timestamptz()
+
+  tenant    Tenant @relation(fields: [tenant_id], references: [id])
+  requester User   @relation(fields: [requester_id], references: [id])
+
+  @@index([requester_id, state])
+  @@index([state, expires_at]) // GC 배치용
+  @@map("file_uploads")
 }
 
 // 이메일 인증(AUTH-1)·비밀번호 재설정(AUTH-4) 토큰 — 해시만 저장, 1회용

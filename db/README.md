@@ -28,6 +28,13 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 | `audit.audit_logs` 파티션 테이블 전체 (Prisma 모델 없음 — raw SQL로만 접근) | `20260807130000_audit_schema` |
 | `audit.create_partition(month)` 함수 | `20260807130000_audit_schema` |
 
+## 업로드 세션 (`file_uploads`)
+
+서명 URL 발급 시점의 조건(요청자·storage_key·MIME·크기 상한·만료)을 서버가 보관하는 테이블.
+완료 콜백은 **불투명 `upload_id` 만** 받는다 — `storage_key` 를 클라이언트에 노출하면 §10.2 위반이자
+타인의 오브젝트를 지목해 자기 파일 행을 만드는 경로가 열린다.
+만료된 미완료 세션은 `UploadSessionService.collectGarbage()`(매시 20분)가 오브젝트와 함께 정리한다.
+
 ## 감사 로그는 전용 스키마 `audit` 에 둔다 (중요)
 
 `audit.audit_logs` 는 월 파티션 테이블이라 Prisma 스키마로 표현할 수 없다. 이를 `public` 에 두면
