@@ -32,6 +32,11 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
   }
 
   const links: Array<{ href: string; label: string; show: boolean }> = [
+    // ── board 모듈 기여 (D-2): 사용자 게시판 + 관리 링크 ──
+    { href: '/board', label: '게시판', show: can('board.read') },
+    { href: '/notifications', label: '알림', show: can('board.read') },
+    { href: '/admin/board', label: '게시판 관리', show: can('board.manage') },
+    // ── board 모듈 기여 끝 ──
     { href: '/admin/members', label: '회원', show: can('member.read') },
     { href: '/admin/roles', label: '역할', show: can('admin.role.read') },
     { href: '/admin/files', label: '파일', show: true },
