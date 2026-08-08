@@ -496,6 +496,13 @@ matrix:
     DOMAIN_MANAGER: allow
     OPERATOR: allow
     SUPER_ADMIN: allow
+  "GET /boards/:id/search":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
   "POST /boards/:id/uploads":
     anonymous: deny
     MEMBER: allow

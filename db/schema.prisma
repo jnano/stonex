@@ -459,6 +459,7 @@ model Post {
   status        String    @default("PUBLISHED") @db.VarChar(16) // DRAFT|PUBLISHED|HIDDEN|DELETED
   is_pinned     Boolean   @default(false)
   comment_count BigInt    @default(0)
+  view_count    BigInt    @default(0) // WP-B4 — 요청 경로 쓰기 금지, 버퍼 주기 플러시
   created_at    DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
   updated_at    DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
   deleted_at    DateTime? @db.Timestamptz()

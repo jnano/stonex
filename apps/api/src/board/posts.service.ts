@@ -6,6 +6,7 @@ import { SubjectSnapshot } from '../authorization/types';
 import { BoardsService } from './boards.service';
 import { AttachmentResult, BoardAttachmentService } from './board-attachment.service';
 import { BoardTagsService } from './capabilities.service';
+import { ViewCountService } from './view-count.service';
 import { renderBodyHtml } from './render';
 
 export interface PostSummary {
@@ -15,6 +16,7 @@ export interface PostSummary {
   title: string;
   isPinned: boolean;
   commentCount: number;
+  viewCount: number;
   status: string;
   createdAt: string;
 }
@@ -29,8 +31,8 @@ export interface PostDetail extends PostSummary {
 
 const toSummary = (p: Post): PostSummary => ({
   id: p.id, boardId: p.board_id, ownerId: p.owner_id, title: p.title,
-  isPinned: p.is_pinned, commentCount: Number(p.comment_count), status: p.status,
-  createdAt: p.created_at.toISOString(),
+  isPinned: p.is_pinned, commentCount: Number(p.comment_count), viewCount: Number(p.view_count),
+  status: p.status, createdAt: p.created_at.toISOString(),
 });
 
 const toDetail = (p: Post, attachments: AttachmentResult[] = [], tags: string[] = []): PostDetail => ({
@@ -72,6 +74,7 @@ export class PostsService {
     private readonly boards: BoardsService,
     private readonly attachments: BoardAttachmentService,
     private readonly tags: BoardTagsService,
+    private readonly views: ViewCountService,
   ) {}
 
   /**
@@ -147,6 +150,7 @@ export class PostsService {
     if (post.status === 'DRAFT' && post.owner_id !== subject.id) throw new NotFoundException();
     if (post.status === 'HIDDEN' || post.status === 'DELETED') throw new NotFoundException();
     await this.boards.loadAccessible(subject, post.board_id); // 평면 2
+    this.views.bump(post.id); // 조회수 — 요청 경로 I/O 없음(버퍼, WP-B4)
     return toDetail(post, await this.attachments.listForPost(post.id), await this.tags.listForPost(post.id));
   }
 

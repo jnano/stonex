@@ -130,6 +130,7 @@ const ENDPOINTS: Array<{
   { id: 'POST /boards/:id/members', method: 'post', path: '/api/v1/boards/{board}/members', body: { userId: '{grantSubject}' } },
   { id: 'DELETE /boards/:id/members/:userId', method: 'delete', path: '/api/v1/boards/{board}/members/{grantSubject}' },
   { id: 'GET /boards/:id/posts', method: 'get', path: '/api/v1/boards/{board}/posts' },
+  { id: 'GET /boards/:id/search', method: 'get', path: '/api/v1/boards/{board}/search?q=matrix' },
   // WP-B2 첨부 — 완료 콜백은 없는 uploadId 로 판정만 본다(404 는 인가 통과 후 상태 오류 → allow 아님에 유의:
   // file.upload 미보유 행은 403, 보유 행은 세션 404 — 둘 다 deny 로 접히므로 인가 구분은 발급 라우트가 담당)
   { id: 'POST /boards/:id/uploads', method: 'post', path: '/api/v1/boards/{board}/uploads', body: { contentType: 'image/png', contentLength: 10 } },

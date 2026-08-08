@@ -10,6 +10,7 @@
  *  - 키셋 페이징: 깊이와 무관하게 중복·누락 없이 순회, 고정글은 첫 페이지에만
  *  - 동시 댓글 작성에도 path 가 유일하다 (§9.3 부모 단위 advisory lock)
  */
+import { ViewCountService } from '../src/board/view-count.service';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { config } from 'dotenv';
@@ -81,7 +82,7 @@ describe('게시판 상호작용 (WP-B3, 실 DB)', () => {
     bus.register(notifications);
     const storage = new StorageService(new SettingsService(p, new AuditService()));
     const attachments = new BoardAttachmentService(p, audit, storage, new UploadSessionService(p, storage), boards);
-    posts = new PostsService(p, audit, boards, attachments, new BoardTagsService(p, capabilities));
+    posts = new PostsService(p, audit, boards, attachments, new BoardTagsService(p, capabilities), new ViewCountService(p));
     comments = new CommentsService(p, audit, boards, bus);
     reactions = new BoardReactionsService(p, audit, capabilities, bus);
 

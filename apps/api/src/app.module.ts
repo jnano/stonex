@@ -37,6 +37,8 @@ import { BoardAttachmentService } from './board/board-attachment.service';
 import { BoardEventBus } from './board/event-bus';
 import { BoardNotificationService } from './board/notification.service';
 import { BoardCapabilitiesService, BoardReactionsService, BoardTagsService } from './board/capabilities.service';
+import { BoardSearchService } from './board/search.service';
+import { ViewCountService } from './board/view-count.service';
 import { AuthGuard, TOKEN_VERIFIER } from './authorization/guards/auth.guard';
 import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
@@ -191,6 +193,8 @@ import {
     BoardReactionsService,
     BoardTagsService,
     BoardNotificationService,
+    BoardSearchService,
+    ViewCountService,
     // 이벤트 버스 — 소비자 등록도 확장 지점(여기)서 한다. 커널은 버스를 모른다(모듈 내부 장치)
     {
       provide: BoardEventBus,
