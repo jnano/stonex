@@ -25,7 +25,7 @@ import { GovernancePatrolService } from '../src/governance/patrol.service';
 import { AuditCheckpointService } from '../src/governance/checkpoint.service';
 import { GovernanceAlert, GovernanceNotifier } from '../src/governance/notifier';
 import { PATROL_LOCK_KEY } from '../src/governance/patrol.service';
-import { assertContextUsable, buildContext } from '../src/governance/invariant.registry';
+import { INVARIANTS, assertContextUsable, buildContext } from '../src/governance/invariant.registry';
 import { DEFAULT_TENANT_ID, PERMISSIONS, ROLES } from '../../../db/seeds/permissions';
 
 jest.setTimeout(180_000);
@@ -180,7 +180,7 @@ describe('WP-14a 런타임 불변식 순찰 (실 DB)', () => {
 
   it('위반이 없으면 8종 전부 ok 로 판정되고, 실행 자체가 감사에 남는다 (§14.4 — 감시자도 감사 대상)', async () => {
     const result = await patrol.patrol();
-    expect(result.checks).toHaveLength(8);
+    expect(result.checks).toHaveLength(INVARIANTS.length);
     const failed = result.checks.filter((c) => c.status === 'failed');
     // **'검사 실패'가 하나도 없어야 한다** — SQL 오류·바인딩 실수는 여기서 드러난다.
     // 반면 "위반 0건"은 단언하지 않는다: 불변식은 전 테넌트를 훑고 jest 는 스펙 파일을
@@ -429,7 +429,7 @@ describe('WP-14a 런타임 불변식 순찰 (실 DB)', () => {
       // (다른 스펙이 만드는 일시적 위반 때문에 'ok' 개수는 단언하지 않고, **실패한 것이
       //  RI-2 하나뿐**임을 본다 — 저장점 격리가 무너지면 여기가 즉시 깨진다)
       expect(result.checks.filter((c) => c.status === 'failed').map((c) => c.id)).toEqual(['RI-2']);
-      expect(result.checks).toHaveLength(8);
+      expect(result.checks).toHaveLength(INVARIANTS.length);
       expect(notifier.alerts.some((a) => a.level === 'PAGE' && a.title.includes('검사 실패'))).toBe(true);
     } finally {
       target.file = original;

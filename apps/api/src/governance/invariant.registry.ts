@@ -35,6 +35,8 @@ export const INVARIANTS: InvariantDef[] = [
   { id: 'RI-6', file: 'ri-6-system-roles.sql', severity: 'PAGE', title: '시스템 역할 변조' },
   { id: 'RI-7', file: 'ri-7-audit-hash-chain.sql', severity: 'L3', title: '감사 로그 해시 체인 불일치' },
   { id: 'RI-8', file: 'ri-8-grant-fossils.sql', severity: 'L3', title: '강등된 부여자의 권한 화석' },
+  // RI-9 는 WP-K3(고아 모듈 권한)에 예약되어 있다 — 번호가 순서를 건너뛰는 이유
+  { id: 'RI-10', file: 'ri-10-cleanup-backlog.sql', severity: 'L2', title: '소유자 정리 백로그 (퍼지 실패·정체)' },
 ];
 
 /** SQL 이 검사 대상으로 인정하는 리소스 타입. **여기 없는 타입은 "위반"이 아니라 "검사 불가"다** */

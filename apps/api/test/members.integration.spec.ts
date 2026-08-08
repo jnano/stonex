@@ -13,7 +13,6 @@ import { config } from 'dotenv';
 import { PrismaClient } from '@stonex/db';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { SettingsService } from '../src/settings/settings.service';
 import { GovernanceFreezeService } from '../src/governance/freeze.service';
 import { AuditService } from '../src/audit/audit.service';
 import { RoleGrantService } from '../src/authorization/role-grant.service';
@@ -23,10 +22,6 @@ import { RedisService } from '../src/cache/redis.service';
 import { SnapshotService } from '../src/authorization/snapshot.service';
 import { SuperAdminGuardService } from '../src/members/super-admin-guard.service';
 import { ResourceGrantService } from '../src/authorization/resource-grant.service';
-import { PrismaGrantStore } from '../src/authorization/grant.store';
-import { FilesService } from '../src/files/files.service';
-import { StorageService } from '../src/storage/storage.service';
-import { UploadSessionService } from '../src/storage/upload-session.service';
 import { MembersService } from '../src/members/members.service';
 import { SubjectSnapshot } from '../src/authorization/types';
 
@@ -73,13 +68,11 @@ describe('WP-5 회원 관리 (실 DB)', () => {
     const permVersion = new PermVersionService(p, cache);
     const audit = new AuditService();
     const grantService = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p));
-    const storage = new StorageService(new SettingsService(p, new AuditService()));
     snapshots = new SnapshotService(p, cache);
     members = new MembersService(
       p, audit, new RoleGrantService(audit, permVersion, new GovernanceFreezeService(p, audit)), permVersion, snapshots,
       new SuperAdminGuardService(),
       grantService,
-      new FilesService(testRegistry(p), p, audit, grantService, storage, new UploadSessionService(p, storage), new PrismaGrantStore(p)),
     );
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'members-test' } });
@@ -120,6 +113,7 @@ describe('WP-5 회원 관리 (실 DB)', () => {
   });
 
   afterAll(async () => {
+    await prisma.ownerCleanupJob.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.$executeRaw`DELETE FROM audit.audit_logs WHERE tenant_id = ${TENANT}::uuid`;
     await prisma.resourceGrant.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.refreshToken.deleteMany({ where: { user: { tenant_id: TENANT } } });
@@ -238,6 +232,9 @@ describe('WP-5 회원 관리 (실 DB)', () => {
     expect(after.status).toBe('DELETED');
     expect(after.deleted_at).not.toBeNull();
     expect(await prisma.resourceGrant.count({ where: { subject_id: target.id } })).toBe(0);
+    // WP-K2: 소유 리소스 정리는 in-tx 가 아니라 퍼지 잡으로 표식된다(O(1), RT-27).
+    // 어떤 리소스 타입이 정리되는지는 훅 레지스트리가 알고, 이 서비스는 모른다.
+    expect(await prisma.ownerCleanupJob.count({ where: { user_id: target.id, status: 'PENDING' } })).toBe(1);
   });
 
   describe('최고관리자 보존 불변식 (§10.1, RI-1)', () => {

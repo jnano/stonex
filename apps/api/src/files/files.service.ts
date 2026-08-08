@@ -96,6 +96,8 @@ export class FilesService {
       // 1단계 게이트를 손으로 옮겨 적지 않고 평가기의 표에서 가져온다(§15.1)
       status: { in: [...this.registry.statusesAllowing('file', 'file.read')] },
       deleted_at: null,
+      // 소유자가 탈퇴한 리소스는 퍼지 전이라도 목록에서 즉시 제외한다(WP-K2, DEC-3)
+      owner: { deleted_at: null },
       OR: [{ owner_id: subject.id }, { id: { in: [...allowIds] } }],
       ...(denyIds.size > 0 ? { NOT: { id: { in: [...denyIds] } } } : {}),
     };
@@ -190,29 +192,4 @@ export class FilesService {
     // 즉시 삭제하면 오삭제 복구가 불가능해진다.
   }
 
-  /**
-   * 소유자 삭제 시 그 회원이 소유한 파일 처리 (기획서 MEM-6, WT-17).
-   * 보유 수에 비례하는 무제한 쓰기를 한 트랜잭션에 넣지 않도록 상한을 둔다.
-   */
-  async softDeleteOwnedBy(
-    tx: Prisma.TransactionClient,
-    ownerId: string,
-    context: { tenantId: string; actorId: string | null },
-    limit = 500,
-  ): Promise<{ processed: number; remaining: number }> {
-    const targets = await tx.file.findMany({
-      where: { owner_id: ownerId, deleted_at: null },
-      select: { id: true },
-      take: limit,
-    });
-    for (const t of targets) {
-      await tx.file.update({
-        where: { id: t.id },
-        data: { status: 'DELETED', deleted_at: new Date() },
-      });
-      await this.grants.cleanupForResource(tx, 'file', t.id, context);
-    }
-    const remaining = await tx.file.count({ where: { owner_id: ownerId, deleted_at: null } });
-    return { processed: targets.length, remaining };
-  }
 }

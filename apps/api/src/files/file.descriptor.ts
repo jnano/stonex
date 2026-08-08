@@ -16,8 +16,11 @@ export const fileDescriptor = (prisma: PrismaService): ResourceTypeDescriptor =>
   statusColumn: 'status',
   stateGate: { accessible: ['ACTIVE'] },
   load: async (id) => {
-    const f = await prisma.file.findUnique({ where: { id } });
+    const f = await prisma.file.findUnique({ where: { id }, include: { owner: { select: { deleted_at: true } } } });
     if (!f) return null;
-    return { id: f.id, ownerId: f.owner_id, status: f.status, tenantId: f.tenant_id, deletedAt: f.deleted_at };
+    return {
+      id: f.id, ownerId: f.owner_id, status: f.status, tenantId: f.tenant_id,
+      deletedAt: f.deleted_at, ownerDeletedAt: f.owner.deleted_at,
+    };
   },
 });

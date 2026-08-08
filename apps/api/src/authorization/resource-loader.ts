@@ -25,7 +25,9 @@ export class ResourceLoaderRegistry {
     const row = await descriptor.load(id);
     // 소프트 삭제 판정은 서술자가 아니라 **여기서 일괄** 수행한다 — 서술자마다 맡기면
     // 하나가 빠뜨렸을 때 삭제 리소스가 게이트를 통과하는 구멍이 된다(WT-25 가 그 사례).
-    if (!row || row.deletedAt) throw new NotFoundException(); // 존재 은닉(§10.2): 404
+    // 소유자 삭제 판정도 같다(WP-K2, DEC-3): 탈퇴자의 리소스는 퍼지 전이라도 즉시 은닉 —
+    // 없으면 탈퇴 커밋과 배치 정리 사이에 Grant 보유자가 접근하는 창이 생긴다.
+    if (!row || row.deletedAt || row.ownerDeletedAt) throw new NotFoundException(); // 존재 은닉(§10.2): 404
     return { type, id: row.id, ownerId: row.ownerId, status: row.status, tenantId: row.tenantId };
   }
 }

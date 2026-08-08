@@ -8,6 +8,7 @@
  *  - 회원 삭제 후 그 회원 소유 파일에 대한 기존 공유 접근 차단 (WT-17)
  *  - 다른 테넌트 리소스 id 접근 시 404
  */
+import { FileOwnerCleanupHook } from '../src/files/file.cleanup';
 import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
@@ -240,9 +241,20 @@ describe('WP-10 파일 기본 기능 (실 DB)', () => {
     });
     expect({ allow: before.allow, step: before.step }).toEqual({ allow: true, step: 4 });
 
-    await prisma.$transaction(async (tx) => {
-      await files.softDeleteOwnedBy(tx, doomed.id, { tenantId: TENANT, actorId: ownerId });
+    // WP-K2/DEC-3: 소유자 삭제 **표식만** 커밋된 시점 — 퍼지 전 — 에도
+    // 목록은 즉시 제외한다. 없으면 표식과 배치 정리 사이에 Grant 보유자의
+    // 목록에 탈퇴자 파일이 남는 가시성 창이 생긴다.
+    await prisma.user.update({
+      where: { id: doomed.id }, data: { status: 'DELETED', deleted_at: new Date() },
     });
+    const during = await files.listVisible(snapshot(viewerId), 1, 100);
+    expect(during.items.some((i) => i.id === file.id)).toBe(false);
+
+    // WP-K2: 실제 정리는 서비스가 아니라 소유자 정리 훅이 한다 — members.service 는
+    // 잡만 넣고, 워커가 이 훅을 배치로 호출한다
+    await new FileOwnerCleanupHook(p, grants).purgeOwnerDeleted(
+      doomed.id, { tenantId: TENANT, actorId: ownerId }, 500,
+    );
 
     const row = await prisma.file.findUniqueOrThrow({ where: { id: file.id } });
     const after = await authz.can(snapshot(viewerId), 'file.read', {

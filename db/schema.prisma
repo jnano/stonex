@@ -379,6 +379,27 @@ model SystemSetting {
   @@map("system_settings")
 }
 
+// 소유자 정리 퍼지 큐 (Phase 3 WP-K2, DEC-3 즉시 차단).
+// 회원 삭제 트랜잭션은 이 행 1건만 넣는다(O(1)) — 은닉은 users.deleted_at 표식이 즉시
+// 담당하고, 리소스의 실제 소프트삭제·Grant 정리는 워커가 배치로 이어받는다(RT-27).
+model OwnerCleanupJob {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id  String    @db.Uuid
+  user_id    String    @db.Uuid
+  // PENDING → (배치 반복) → DONE / FAILED(재시도 소진 — 순찰 검출 대상)
+  status     String    @default("PENDING") @db.VarChar(20)
+  attempts   Int       @default(0)
+  last_error String?
+  // 시간은 **DB 가 채운다**(dbgenerated). Prisma 클라이언트가 넣는 Date 는 어댑터의
+  // 시간대 문제로 9시간 어긋나게 저장됨을 실측 확인(생성 직후 age=540분) — RI-10 의
+  // "30분 정체" 판정이 전부 오탐이 된다. 갱신도 워커가 raw SQL 의 now() 로 한다.
+  created_at DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
+  updated_at DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
+
+  @@index([status, updated_at])
+  @@map("owner_cleanup_jobs")
+}
+
 // 이메일 인증(AUTH-1)·비밀번호 재설정(AUTH-4) 토큰 — 해시만 저장, 1회용
 model VerificationToken {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
