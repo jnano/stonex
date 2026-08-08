@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubjectSnapshot } from '../authorization/types';
 import { BoardEvent, BoardEventConsumer } from './event-bus';
+import { BoardPolicyService } from './board-policy.service';
+import { PostPolicyService } from './post-policy.service';
 
 export interface NotificationView {
   id: string;
@@ -26,9 +28,13 @@ const FANOUT_LIMIT = 100;
  */
 @Injectable()
 export class BoardNotificationService implements BoardEventConsumer {
-  readonly topics = ['comment.created', 'reaction.added'];
+  readonly topics = ['comment.created', 'reaction.added', 'mention.created'];
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly boardPolicy: BoardPolicyService,
+    private readonly postPolicy: PostPolicyService,
+  ) {}
 
   async consume(event: BoardEvent): Promise<void> {
     const recipients = await this.recipientsFor(event);
@@ -60,8 +66,31 @@ export class BoardNotificationService implements BoardEventConsumer {
     if (!postId) return [];
     const post = await this.prisma.post.findUnique({ where: { id: postId } });
     if (!post || post.deleted_at) return [];
-    // 기본 수신자: 글 작성자(자기 행위 제외). 멘션 팬아웃은 B5 에서 이 목록을 확장한다
-    return post.owner_id === actorId ? [] : [post.owner_id];
+    const board = await this.prisma.board.findUnique({ where: { id: post.board_id } });
+    if (!board || board.deleted_at) return [];
+
+    const candidates =
+      event.topic === 'mention.created'
+        ? ((event.payload.mentionedUserIds as string[] | undefined) ?? [])
+        : post.owner_id === actorId
+          ? []
+          : [post.owner_id];
+
+    // §6.5 mention: **수신자마다 접근을 재판정**한다 — 접근 불가한 게시판·비밀글의 존재가
+    // 알림으로 새면 안 된다(R-B11). 글 작성자 알림도 같은 필터를 태워 경로를 하나로 유지한다.
+    const allowed: string[] = [];
+    for (const userId of [...new Set(candidates)].filter((id) => id !== actorId)) {
+      const user = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (!user || user.deleted_at) continue;
+      const subject = {
+        id: userId, tenantId: event.tenantId, status: 'ACTIVE', roles: [], pv: 1,
+        permissions: new Map(),
+      } as unknown as SubjectSnapshot;
+      if (!(await this.boardPolicy.canAccessBoard(subject, board))) continue;
+      if (!(await this.postPolicy.canReadPost(subject, post))) continue;
+      allowed.push(userId);
+    }
+    return allowed;
   }
 
   // ── 조회 API (본인 한정) ──────────────────────────────────────

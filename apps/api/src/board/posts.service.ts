@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type Post } from '@stonex/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -7,6 +7,11 @@ import { BoardsService } from './boards.service';
 import { AttachmentResult, BoardAttachmentService } from './board-attachment.service';
 import { BoardTagsService } from './capabilities.service';
 import { ViewCountService } from './view-count.service';
+import { PostPolicyService } from './post-policy.service';
+import { BoardCapabilitiesService } from './capabilities.service';
+import { BoardEventBus } from './event-bus';
+import { validateSettings } from './presets';
+import { extractMentions } from './render';
 import { renderBodyHtml } from './render';
 
 export interface PostSummary {
@@ -18,6 +23,7 @@ export interface PostSummary {
   commentCount: number;
   viewCount: number;
   status: string;
+  isSecret: boolean;
   createdAt: string;
 }
 
@@ -32,7 +38,7 @@ export interface PostDetail extends PostSummary {
 const toSummary = (p: Post): PostSummary => ({
   id: p.id, boardId: p.board_id, ownerId: p.owner_id, title: p.title,
   isPinned: p.is_pinned, commentCount: Number(p.comment_count), viewCount: Number(p.view_count),
-  status: p.status, createdAt: p.created_at.toISOString(),
+  status: p.status, isSecret: p.is_secret, createdAt: p.created_at.toISOString(),
 });
 
 const toDetail = (p: Post, attachments: AttachmentResult[] = [], tags: string[] = []): PostDetail => ({
@@ -75,6 +81,9 @@ export class PostsService {
     private readonly attachments: BoardAttachmentService,
     private readonly tags: BoardTagsService,
     private readonly views: ViewCountService,
+    private readonly policy: PostPolicyService,
+    private readonly capabilities: BoardCapabilitiesService,
+    private readonly bus: BoardEventBus,
   ) {}
 
   /**
@@ -103,10 +112,26 @@ export class PostsService {
     };
 
     // 첫 페이지: 고정글 전부 + 일반 첫 배치. 이후 페이지: 커서 이후 일반 글만
+    // 비밀글 스코프(BINV-3 — canReadPost 의 쿼리 등가) + 차단 표시 필터(보안 경계 아님 §6.5)
+    const secret = await this.policy.secretScope(subject);
+    const blocked = await this.policy.blockedIds(subject.id);
+    const secretFilter: Prisma.PostWhereInput = secret.bypassAll
+      ? {}
+      : {
+          OR: [
+            { is_secret: false },
+            { owner_id: subject.id },
+            { id: { in: secret.readablePostIds } },
+            { board_id: { in: secret.moderateBoardIds } },
+          ],
+        };
+    const blockFilter: Prisma.PostWhereInput =
+      blocked.length > 0 ? { NOT: { owner_id: { in: blocked } } } : {};
+
     const pinned = after
       ? []
       : await this.prisma.post.findMany({
-          where: { ...base, is_pinned: true },
+          where: { ...base, ...blockFilter, AND: [secretFilter], is_pinned: true },
           orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
         });
     // 커서 이후 판정은 DB 의 (created_at, id) 행 비교 — 마이크로초 정밀도를 잃지 않는다
@@ -117,6 +142,10 @@ export class PostsService {
          AND p.is_pinned = false
          AND (p.status = 'PUBLISHED' OR (p.status = 'DRAFT' AND p.owner_id = ${subject.id}::uuid))
          AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = p.owner_id AND u.deleted_at IS NOT NULL)
+         AND (${secret.bypassAll}::boolean OR p.is_secret = false OR p.owner_id = ${subject.id}::uuid
+              OR p.id = ANY(${secret.readablePostIds}::uuid[])
+              OR p.board_id = ANY(${secret.moderateBoardIds}::uuid[]))
+         AND NOT (p.owner_id = ANY(${blocked}::uuid[]))
          AND (${after}::uuid IS NULL OR (p.created_at, p.id) <
               (SELECT c.created_at, c.id FROM posts c WHERE c.id = ${after}::uuid))
        ORDER BY p.created_at DESC, p.id DESC
@@ -150,6 +179,8 @@ export class PostsService {
     if (post.status === 'DRAFT' && post.owner_id !== subject.id) throw new NotFoundException();
     if (post.status === 'HIDDEN' || post.status === 'DELETED') throw new NotFoundException();
     await this.boards.loadAccessible(subject, post.board_id); // 평면 2
+    // 비밀글(§6.5): 숨김은 노출에 우선 — 판정 실패는 403 이 아니라 404(존재 은닉)
+    if (!(await this.policy.canReadPost(subject, post))) throw new NotFoundException();
     this.views.bump(post.id); // 조회수 — 요청 경로 I/O 없음(버퍼, WP-B4)
     return toDetail(post, await this.attachments.listForPost(post.id), await this.tags.listForPost(post.id));
   }
@@ -157,9 +188,22 @@ export class PostsService {
   async create(
     subject: SubjectSnapshot,
     boardId: string,
-    input: { title: string; bodyMd: string; draft?: boolean; attachmentFileIds?: string[]; tags?: string[] },
+    input: {
+      title: string; bodyMd: string; draft?: boolean; attachmentFileIds?: string[]; tags?: string[];
+      secret?: boolean; secretReaderIds?: string[];
+    },
   ): Promise<PostDetail> {
-    await this.boards.loadAccessible(subject, boardId, { write: true }); // ARCHIVED 는 쓰기 불가
+    const board = await this.boards.loadAccessible(subject, boardId, { write: true }); // ARCHIVED 쓰기 불가
+    // write_policy=MODERATOR(공지·FAQ 프리셋): 설정은 정책 판정의 입력이지 인가가 아니다(BINV-1) —
+    // 최종 판정은 여기 정책 함수. 운영 권한 없는 작성은 404 로 은닉하지 않고 403 — 게시판은 이미 보인다
+    const settings = validateSettings(board.settings);
+    if (settings.write_policy === 'MODERATOR') {
+      const canModerate =
+        subject.permissions.has('board.moderate.all') ||
+        (await this.policy.secretScope(subject)).moderateBoardIds.includes(boardId);
+      if (!canModerate) throw new ForbiddenException('이 게시판은 운영자만 글을 쓸 수 있습니다.');
+    }
+    if (input.secret) await this.capabilities.assertEnabled(boardId, 'secret-post');
     const post = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const created = await tx.post.create({
         data: {
@@ -170,8 +214,23 @@ export class PostsService {
           body_md: input.bodyMd,
           body_html: renderBodyHtml(input.bodyMd),
           status: input.draft ? 'DRAFT' : 'PUBLISHED',
+          is_secret: input.secret === true,
         },
       });
+      if (input.secret && input.secretReaderIds?.length) {
+        await tx.postSecretReader.createMany({
+          data: [...new Set(input.secretReaderIds)].map((userId) => ({ post_id: created.id, user_id: userId })),
+          skipDuplicates: true,
+        });
+      }
+      // 멘션(§6.5): 대상 목록만 이벤트에 싣는다 — 수신 여부는 소비 시점에 접근 재판정
+      const mentioned = await extractMentions(tx, subject.tenantId, input.bodyMd);
+      if (!input.draft && mentioned.length > 0) {
+        await this.bus.publish(tx, {
+          tenantId: subject.tenantId, topic: 'mention.created',
+          payload: { postId: created.id, boardId, actorId: subject.id, mentionedUserIds: mentioned },
+        });
+      }
       // 첨부 링크 — 본인 소유분 한정 검증 포함(R-B7), 글과 같은 트랜잭션
       await this.attachments.linkToPost(tx, subject, created.id, input.attachmentFileIds ?? []);
       if (input.tags !== undefined) await this.tags.replaceForPost(tx, boardId, created.id, input.tags);
@@ -189,7 +248,11 @@ export class PostsService {
     return toDetail(post, await this.attachments.listForPost(post.id), await this.tags.listForPost(post.id));
   }
 
-  /** 수정 — owned 판정은 Guard(평가기)가 리소스 로드로 이미 통과시켰다 */
+  /**
+   * 수정 — **인증 게이트형 + 정책 함수** (§6.5 co-author).
+   * owned scope(단일 owner_id)로는 공동작성을 표현할 수 없어 라우트는 인증만 확인하고,
+   * 여기서 canEditPost(작성자 ∨ 공동작성자 ∨ 운영자)가 판정한다. 거부는 404 은닉.
+   */
   async update(
     subject: SubjectSnapshot,
     postId: string,
@@ -197,6 +260,8 @@ export class PostsService {
   ): Promise<PostDetail> {
     const post = await this.prisma.post.findUnique({ where: { id: postId } });
     if (!post || post.deleted_at) throw new NotFoundException();
+    if (post.status === 'HIDDEN' || post.status === 'DELETED') throw new NotFoundException();
+    if (!(await this.policy.canEditPost(subject, post))) throw new NotFoundException();
 
     const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const publishing = input.publish === true && post.status === 'DRAFT';
@@ -225,6 +290,28 @@ export class PostsService {
       return next;
     });
     return toDetail(updated, await this.attachments.listForPost(postId), await this.tags.listForPost(postId));
+  }
+
+  /** 공동작성자 지정 (§6.5) — **원작성자만** 바꿀 수 있다. owner_id 는 불변(R-B12) */
+  async setCoAuthors(subject: SubjectSnapshot, postId: string, userIds: string[]): Promise<void> {
+    const post = await this.prisma.post.findUnique({ where: { id: postId } });
+    if (!post || post.deleted_at) throw new NotFoundException();
+    if (post.owner_id !== subject.id) throw new NotFoundException(); // 원작성자 한정 — 은닉
+    const unique = [...new Set(userIds)].filter((id) => id !== post.owner_id).slice(0, 10);
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.postAuthor.deleteMany({ where: { post_id: postId } });
+      if (unique.length > 0) {
+        await tx.postAuthor.createMany({
+          data: unique.map((userId) => ({ post_id: postId, user_id: userId })),
+          skipDuplicates: true,
+        });
+      }
+      await this.audit.record(tx, {
+        tenantId: subject.tenantId, actorId: subject.id, action: 'post.coauthors.set',
+        targetType: 'post', targetId: postId,
+        detail: { before: {}, after: { coAuthors: unique.length } },
+      });
+    });
   }
 
   async softDelete(subject: SubjectSnapshot, postId: string, viaAdmin = false): Promise<void> {

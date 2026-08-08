@@ -5,6 +5,8 @@ import { AuditService } from '../audit/audit.service';
 import { ResourceGrantService } from '../authorization/resource-grant.service';
 import { SubjectSnapshot } from '../authorization/types';
 import { BoardPolicyService } from './board-policy.service';
+import { BOARD_TYPE_PRESETS } from './presets';
+import { CAPABILITY_KEYS } from './capabilities.service';
 
 export interface BoardSummary {
   id: string;
@@ -104,15 +106,28 @@ export class BoardsService {
         where: { tenant_id_slug: { tenant_id: subject.tenantId, slug: input.slug } },
       });
       if (existing) throw new ConflictException('이미 사용 중인 slug 입니다.');
+      const boardType = input.boardType ?? 'FORUM';
+      // 프리셋(§5): 특화 게시판 = 코드가 아니라 설정 + 기능모듈 조합. 미지 타입은 FORUM 기본
+      const preset = BOARD_TYPE_PRESETS[boardType] ?? BOARD_TYPE_PRESETS.FORUM;
       const created = await tx.board.create({
         data: {
           tenant_id: subject.tenantId,
           slug: input.slug,
           name: input.name,
-          board_type: input.boardType ?? 'FORUM',
+          board_type: boardType,
           visibility: input.visibility ?? 'PUBLIC',
+          settings: preset.settings as unknown as Prisma.InputJsonValue,
           created_by: subject.id,
         },
+      });
+      // 프리셋 기본 기능모듈: 목록에 없는 것은 명시적으로 끈다 — "미설정=활성" 기본값이
+      // 프리셋 의도(FAQ 는 tag 만)를 덮지 않도록 전 카탈로그에 행을 깐다
+      await tx.boardCapability.createMany({
+        data: CAPABILITY_KEYS.map((key) => ({
+          board_id: created.id,
+          capability_key: key,
+          enabled: preset.capabilitiesDefault.includes(key),
+        })),
       });
       await this.audit.record(tx, {
         tenantId: subject.tenantId, actorId: subject.id, action: 'board.create',
@@ -195,6 +210,41 @@ export class BoardsService {
         });
       }
     });
+  }
+
+  /** 기능모듈 on/off (§5·§6) — 설정 변경일 뿐 재배포가 없다 */
+  async setCapability(
+    subject: SubjectSnapshot,
+    boardId: string,
+    key: string,
+    enabled: boolean,
+  ): Promise<void> {
+    if (!(CAPABILITY_KEYS as readonly string[]).includes(key)) {
+      throw new BadRequestException(`알 수 없는 기능모듈입니다: ${key}`);
+    }
+    const board = await this.prisma.board.findUnique({ where: { id: boardId } });
+    if (!board || board.deleted_at || board.tenant_id !== subject.tenantId) throw new NotFoundException();
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.boardCapability.upsert({
+        where: { board_id_capability_key: { board_id: boardId, capability_key: key } },
+        update: { enabled },
+        create: { board_id: boardId, capability_key: key, enabled },
+      });
+      await this.audit.record(tx, {
+        tenantId: subject.tenantId, actorId: subject.id, action: 'board.capability.set',
+        targetType: 'board', targetId: boardId,
+        detail: { before: {}, after: { key, enabled } },
+      });
+    });
+  }
+
+  /** 게시판 기능모듈 상태 — 관리 콘솔 표시용 */
+  async listCapabilities(subject: SubjectSnapshot, boardId: string): Promise<Array<{ key: string; enabled: boolean }>> {
+    const board = await this.prisma.board.findUnique({ where: { id: boardId } });
+    if (!board || board.deleted_at || board.tenant_id !== subject.tenantId) throw new NotFoundException();
+    const rows = await this.prisma.boardCapability.findMany({ where: { board_id: boardId } });
+    const byKey = new Map(rows.map((r) => [r.capability_key, r.enabled]));
+    return CAPABILITY_KEYS.map((key) => ({ key, enabled: byKey.get(key) ?? true }));
   }
 
   async removeMember(subject: SubjectSnapshot, boardId: string, userId: string): Promise<void> {

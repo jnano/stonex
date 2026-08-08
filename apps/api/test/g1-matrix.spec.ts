@@ -143,6 +143,16 @@ const ENDPOINTS: Array<{
   { id: 'GET /posts/:id/comments', method: 'get', path: '/api/v1/posts/{post}/comments' },
   // WP-B3 상호작용
   { id: 'POST /posts/:id/reactions', method: 'post', path: '/api/v1/posts/{post}/reactions', body: { kind: 'like' } },
+  // WP-B5 특화·거버넌스
+  { id: 'GET /boards/:id/capabilities', method: 'get', path: '/api/v1/boards/{board}/capabilities' },
+  { id: 'PATCH /boards/:id/capabilities', method: 'patch', path: '/api/v1/boards/{board}/capabilities', body: { key: 'reaction', enabled: true } },
+  { id: 'POST /posts/:id/authors', method: 'post', path: '/api/v1/posts/{post}/authors', body: { userIds: [] } },
+  // 신고는 전용 행별 픽스처 — rowPost 는 앞의 DELETE /admin/posts/:id 가 이미 소모한다
+  { id: 'POST /posts/:id/report', method: 'post', path: '/api/v1/posts/{rowReportPost}/report', body: { reason: 'matrix' } },
+  { id: 'POST /me/blocks/:userId', method: 'post', path: '/api/v1/me/blocks/{grantSubject}' },
+  { id: 'GET /admin/board/reports', method: 'get', path: '/api/v1/admin/board/reports' },
+  { id: 'POST /admin/board/reports/:id/resolve', method: 'post', path: '/api/v1/admin/board/reports/00000000-0000-0000-0000-000000000000/resolve', body: { uphold: false } },
+  { id: 'GET /admin/board/patrol', method: 'get', path: '/api/v1/admin/board/patrol' },
   { id: 'GET /posts/:id/reactions', method: 'get', path: '/api/v1/posts/{post}/reactions' },
   { id: 'GET /notifications', method: 'get', path: '/api/v1/notifications' },
   { id: 'POST /notifications/:id/read', method: 'post', path: '/api/v1/notifications/00000000-0000-0000-0000-000000000000/read' },
@@ -220,6 +230,7 @@ describe('G-1 권한 매트릭스', () => {
   let postId: string;
   let grantSubjectId: string;
   const rowPosts: Record<string, string> = {};
+  const rowReportPosts: Record<string, string> = {};
   const rowComments: Record<string, string> = {};
 
   beforeAll(async () => {
@@ -342,6 +353,12 @@ describe('G-1 권한 매트릭스', () => {
         },
       });
       rowPosts[row] = rp.id;
+      rowReportPosts[row] = (await prisma.post.create({
+        data: {
+          tenant_id: TENANT, board_id: board.id, owner_id: resourceOwner.id,
+          title: `매트릭스 신고용 ${row}`, body_md: 'b', body_html: '<p>b</p>',
+        },
+      })).id;
       rowComments[row] = (await prisma.comment.create({
         data: {
           tenant_id: TENANT, post_id: rp.id, owner_id: resourceOwner.id,
@@ -370,6 +387,11 @@ describe('G-1 권한 매트릭스', () => {
     await prisma.boardNotification.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.boardOutboxEvent.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.boardReaction.deleteMany({});
+    await prisma.boardReport.deleteMany({ where: { tenant_id: TENANT } });
+    await prisma.postSecretReader.deleteMany({});
+    await prisma.postAuthor.deleteMany({});
+    await prisma.userBlock.deleteMany({});
+    await prisma.boardCapability.deleteMany({});
     await prisma.comment.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.post.deleteMany({ where: { tenant_id: TENANT } });
     await prisma.board.deleteMany({ where: { tenant_id: TENANT } });
@@ -404,6 +426,7 @@ describe('G-1 권한 매트릭스', () => {
           .replace('{domain}', domainId)
           .replace('{board}', boardId)
           .replace('{post}', postId)
+          .replace('{rowReportPost}', rowReportPosts[actor.row])
           .replace('{rowPost}', rowPosts[actor.row])
           .replace('{rowComment}', rowComments[actor.row])
           .replace('{grantSubject}', grantSubjectId);

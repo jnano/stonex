@@ -80,6 +80,16 @@ export default function PostPage() {
       .finally(() => setBusy(false));
   };
 
+  const reportPost = () => {
+    if (!params?.postId) return;
+    const reason = window.prompt('신고 사유를 입력하세요 (300자 이내)');
+    if (!reason?.trim()) return;
+    void endpoints
+      .reportPost(params.postId, reason.trim().slice(0, 300))
+      .then(() => setError(null))
+      .catch((e) => setError(errorText(e, '신고에 실패했습니다.')));
+  };
+
   const react = (kind: string) => {
     if (!params?.postId) return;
     void endpoints
@@ -112,6 +122,7 @@ export default function PostPage() {
             </ul>
           )}
           <div style={{ ...s.row, marginTop: 14 }}>
+            <button onClick={reportPost} style={{ ...s.button, fontSize: 12 }}>🚩 신고</button>
             {REACTION_KINDS.map((kind) => {
               const entry = reactions.find((r) => r.kind === kind);
               return (

@@ -89,6 +89,7 @@ export default function BoardPostsPage() {
                 {post.title}
               </Link>
               {post.status === 'DRAFT' && <span style={{ ...s.muted, marginLeft: 6 }}>(임시저장)</span>}
+              {post.isSecret && <span style={{ marginLeft: 6 }}>🔒</span>}
             </div>
             <span style={{ ...s.muted, fontSize: 12 }}>
               댓글 {post.commentCount} · 조회 {post.viewCount} · {new Date(post.createdAt).toLocaleDateString('ko-KR')}

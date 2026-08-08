@@ -536,8 +536,8 @@ matrix:
     MEMBER: deny
     FILE_MANAGER: deny
     DOMAIN_MANAGER: deny
-    OPERATOR: deny
-    SUPER_ADMIN: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
   "DELETE /posts/:id":
     anonymous: deny
     MEMBER: deny
@@ -564,6 +564,62 @@ matrix:
     MEMBER: allow
     FILE_MANAGER: allow
     DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /boards/:id/capabilities":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "PATCH /boards/:id/capabilities":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: allow
+  "POST /posts/:id/authors":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "POST /posts/:id/report":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "POST /me/blocks/:userId":
+    anonymous: deny
+    MEMBER: allow
+    FILE_MANAGER: allow
+    DOMAIN_MANAGER: allow
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "GET /admin/board/reports":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
+  "POST /admin/board/reports/:id/resolve":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: deny
+    SUPER_ADMIN: deny
+  "GET /admin/board/patrol":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
     OPERATOR: allow
     SUPER_ADMIN: allow
   "GET /posts/:id/reactions":

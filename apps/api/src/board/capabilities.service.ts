@@ -5,8 +5,11 @@ import { AuditService } from '../audit/audit.service';
 import { SubjectSnapshot } from '../authorization/types';
 import { BoardEventBus } from './event-bus';
 
-/** 초기 기능모듈 카탈로그 (스펙 §6.4 부분집합 — WP-B3 몫: attachment·reaction·tag·notification) */
-export const CAPABILITY_KEYS = ['attachment', 'reaction', 'tag', 'notification'] as const;
+/** 기능모듈 카탈로그 (스펙 §6.4 — WP-B5 에서 접근개입 4종·신고·조회수 편입) */
+export const CAPABILITY_KEYS = [
+  'attachment', 'reaction', 'tag', 'notification', 'view-count',
+  'report', 'secret-post', 'co-author', 'user-block', 'mention',
+] as const;
 export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
 
 /**
