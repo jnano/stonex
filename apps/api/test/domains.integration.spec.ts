@@ -12,6 +12,7 @@
  *  - 이전받은 MEMBER 가 자기 도메인을 수정·검증·삭제할 수 있다 (기획서 v1.7 §4.5)
  *  - 소프트 삭제 후 같은 FQDN 재등록이 가능하다 (부분 유니크)
  */
+import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { config } from 'dotenv';
@@ -107,10 +108,10 @@ describe('WP-12 도메인 기본 기능 (실 DB)', () => {
     p = prisma as unknown as PrismaService;
     const audit = new AuditService();
     dns = new FakeResolver();
-    domains = new DomainsService(p, audit, new ResourceGrantService(audit, new GovernanceFreezeService(p, audit)), new PrismaGrantStore(p));
+    domains = new DomainsService(testRegistry(p), p, audit, new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p)), new PrismaGrantStore(p));
     verification = new DomainVerificationService(p, audit, dns);
-    authz = new AuthorizationService(new PrismaGrantStore(p));
-    loader = new ResourceLoaderRegistry(p);
+    authz = new AuthorizationService(new PrismaGrantStore(p), testRegistry(p));
+    loader = new ResourceLoaderRegistry(testRegistry(p));
 
     await prisma.tenant.upsert({
       where: { id: TENANT }, update: {}, create: { id: TENANT, name: `t-${uid()}` },

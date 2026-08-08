@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ResourceGrantService } from '../authorization/resource-grant.service';
 import { PrismaGrantStore } from '../authorization/grant.store';
-import { statusesAllowing } from '../authorization/authorization.service';
+import { ResourceTypeRegistry } from '../authorization/resource-registry';
 import { SubjectSnapshot } from '../authorization/types';
 import { DomainSummary, toDomainSummary } from './domain.serializer';
 import { normalizeFqdn } from './fqdn';
@@ -22,6 +22,7 @@ function issueToken(): string {
 @Injectable()
 export class DomainsService {
   constructor(
+    private readonly registry: ResourceTypeRegistry,
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly grants: ResourceGrantService,
@@ -84,7 +85,7 @@ export class DomainsService {
 
     const where: Prisma.DomainWhereInput = {
       tenant_id: subject.tenantId,
-      status: { in: [...statusesAllowing('domain', 'domain.read')] },
+      status: { in: [...this.registry.statusesAllowing('domain', 'domain.read')] },
       deleted_at: null,
       OR: [{ owner_id: subject.id }, { id: { in: [...allowIds] } }],
       ...(denyIds.size > 0 ? { NOT: { id: { in: [...denyIds] } } } : {}),

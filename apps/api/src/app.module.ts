@@ -20,6 +20,9 @@ import { PolicyService } from './authorization/policy.service';
 import { RoleGrantService } from './authorization/role-grant.service';
 import { ResourceGrantService } from './authorization/resource-grant.service';
 import { ResourceLoaderRegistry } from './authorization/resource-loader';
+import { ResourceTypeRegistry } from './authorization/resource-registry';
+import { fileDescriptor } from './files/file.descriptor';
+import { domainDescriptor } from './domains/domain.descriptor';
 import { AuthGuard, TOKEN_VERIFIER } from './authorization/guards/auth.guard';
 import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
@@ -97,6 +100,18 @@ import {
     PolicyService,
     RoleGrantService,
     ResourceGrantService,
+    // 리소스 타입 레지스트리 (WP-K1) — 서술자 등록은 커널이 아니라 여기(확장 지점)서 한다.
+    // 신규 리소스 타입은 이 팩토리에 서술자 한 줄을 더하는 것으로 편입된다(§9.1).
+    {
+      provide: ResourceTypeRegistry,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): ResourceTypeRegistry => {
+        const registry = new ResourceTypeRegistry(prisma);
+        registry.register(fileDescriptor(prisma));
+        registry.register(domainDescriptor(prisma));
+        return registry;
+      },
+    },
     ResourceLoaderRegistry,
     PrismaGrantStore,
     { provide: GRANT_STORE, useExisting: PrismaGrantStore },

@@ -6,6 +6,7 @@
  * (성능 회귀를 게이트로 만들려면 전용 벤치 환경이 필요하다 — 지금 하면 오탐만 늘어난다)
  * 다만 "회수 전파" 는 기능 요구에 가까우므로 상한(10초)을 실제로 검증한다.
  */
+import { testRegistry } from './helpers/registry';
 import { PrismaClient } from '@stonex/db';
 import { AuthorizationService } from '../src/authorization/authorization.service';
 import { PrismaGrantStore } from '../src/authorization/grant.store';
@@ -48,7 +49,7 @@ describe('비기능 측정 (§11)', () => {
     cache = new PermissionCacheService(redis);
     permVersion = new PermVersionService(p, cache);
     snapshots = new SnapshotService(p, cache);
-    authz = new AuthorizationService(new PrismaGrantStore(p));
+    authz = new AuthorizationService(new PrismaGrantStore(p), testRegistry(p));
 
     const roleIds = await seedRolesForTenant(prisma, TENANT);
     const user = await prisma.user.create({
@@ -166,7 +167,7 @@ describe('비기능 측정 (§11)', () => {
         fqdn: `perf-${uid()}.example.com`, status: 'UNVERIFIED',
       },
     });
-    const loader = new ResourceLoaderRegistry(p);
+    const loader = new ResourceLoaderRegistry(testRegistry(p));
 
     /** 실제 요청 경로를 재현한다: 스냅샷 조회 → 리소스 로드 → 평가 */
     const measure = async (label: string, run: () => Promise<unknown>): Promise<number> => {

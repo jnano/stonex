@@ -6,6 +6,7 @@
  *  - 마지막 활성 SUPER_ADMIN 강등·정지·삭제가 **동시 요청 2건 경쟁 상황에서도** 전부 거부
  *  - 정지 계정의 Access·Refresh 토큰 동시 무효화
  */
+import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { config } from 'dotenv';
@@ -71,14 +72,14 @@ describe('WP-5 회원 관리 (실 DB)', () => {
     const cache = new PermissionCacheService(redis);
     const permVersion = new PermVersionService(p, cache);
     const audit = new AuditService();
-    const grantService = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit));
+    const grantService = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p));
     const storage = new StorageService(new SettingsService(p, new AuditService()));
     snapshots = new SnapshotService(p, cache);
     members = new MembersService(
       p, audit, new RoleGrantService(audit, permVersion, new GovernanceFreezeService(p, audit)), permVersion, snapshots,
       new SuperAdminGuardService(),
       grantService,
-      new FilesService(p, audit, grantService, storage, new UploadSessionService(p, storage), new PrismaGrantStore(p)),
+      new FilesService(testRegistry(p), p, audit, grantService, storage, new UploadSessionService(p, storage), new PrismaGrantStore(p)),
     );
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'members-test' } });

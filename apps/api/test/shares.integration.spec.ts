@@ -10,6 +10,7 @@
  *  - 공유 생성과 리소스 삭제 경합에서 정리를 빠져나간 Grant 부재 (행 잠금)
  *  - DENY 존재 시 ALLOW 공유 생성이 거부됨
  */
+import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { config } from 'dotenv';
@@ -82,11 +83,11 @@ describe('WP-11 파일 공유 (실 DB)', () => {
     prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: TEST_URL }) });
     p = prisma as unknown as PrismaService;
     const audit = new AuditService();
-    grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit));
+    grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p));
     shares = new SharesService(p, grants, new PolicyService(), new PrismaGrantStore(p));
     const storage = new StorageService(new SettingsService(p, new AuditService()));
-    files = new FilesService(p, audit, grants, storage, new UploadSessionService(p, storage), new PrismaGrantStore(p));
-    authz = new AuthorizationService(new PrismaGrantStore(p));
+    files = new FilesService(testRegistry(p), p, audit, grants, storage, new UploadSessionService(p, storage), new PrismaGrantStore(p));
+    authz = new AuthorizationService(new PrismaGrantStore(p), testRegistry(p));
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'share-test' } });
     const mk = async (label: string) =>

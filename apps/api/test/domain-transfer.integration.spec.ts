@@ -10,6 +10,7 @@
  *  - 동시 발의 2건 경합 시 1건만 성립
  *  - 만료된 발의가 재발의를 막지 않는다 (지연 만료)
  */
+import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { config } from 'dotenv';
@@ -85,14 +86,14 @@ describe('WP-13 도메인 위임·소유자 이전 (실 DB)', () => {
     p = prisma as unknown as PrismaService;
 
     const audit = new AuditService();
-    const grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit));
+    const grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p));
     const store = new PrismaGrantStore(p);
     const policy = new PolicyService();
-    domains = new DomainsService(p, audit, grants, store);
+    domains = new DomainsService(testRegistry(p), p, audit, grants, store);
     delegations = new DomainDelegationsService(p, grants, policy, store);
     transfers = new DomainTransfersService(p, audit, grants, policy, store);
-    authz = new AuthorizationService(store);
-    loader = new ResourceLoaderRegistry(p);
+    authz = new AuthorizationService(store, testRegistry(p));
+    loader = new ResourceLoaderRegistry(testRegistry(p));
 
     await prisma.tenant.upsert({
       where: { id: TENANT }, update: {}, create: { id: TENANT, name: `t-${uid()}` },

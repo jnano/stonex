@@ -3,6 +3,7 @@ import type { Prisma } from '@stonex/db';
 import { AuditService } from '../audit/audit.service';
 import { GovernanceFreezeService } from '../governance/freeze.service';
 import { GRANT_WHITELIST } from '../../../../db/seeds/permissions';
+import { ResourceTypeRegistry } from './resource-registry';
 
 /**
  * 리소스 Grant 변경의 유일한 통로 (기획서 §5.3, §4.4 화이트리스트).
@@ -17,6 +18,7 @@ export class ResourceGrantService {
   constructor(
     private readonly audit: AuditService,
     private readonly freeze: GovernanceFreezeService,
+    private readonly registry: ResourceTypeRegistry,
   ) {}
 
   /**
@@ -100,7 +102,17 @@ export class ResourceGrantService {
     // 잠금만 걸고 검증을 생략하면, 삭제·이전 트랜잭션이 먼저 커밋된 경우 이 트랜잭션은
     // 잠금을 넘겨받은 뒤 **이미 삭제된 리소스에 Grant 를 심는다** — 삭제 시 정리를 빠져나간
     // Grant 가 영구히 남는다(테스트로 실제 재현됨).
-    const table = input.resourceType === 'file' ? 'files' : 'domains';
+    //
+    // 잠글 테이블은 레지스트리 서술자가 정한다(WP-K1). 기존 `file ? 'files' : 'domains'`
+    // 삼항식은 세 번째 타입이 오면 엉뚱한 테이블을 잠그는 잠복 결함이었다(RT-23).
+    // table 은 등록 시 식별자 검증 + 부팅 시 스키마 대조를 통과한 값이다(RT-26).
+    const descriptor = this.registry.get(input.resourceType);
+    if (!descriptor) {
+      // GRANT_WHITELIST 는 통과했지만 서술자가 없는 타입 — 시드와 레지스트리가 어긋난 상태.
+      // 조용히 넘어가면 잠금 없는 Grant 가 생기므로 명시적으로 거부한다.
+      throw new BadRequestException(`리소스 서술자가 등록되지 않은 타입입니다: ${input.resourceType}`);
+    }
+    const table = descriptor.table;
     const locked = await tx.$queryRawUnsafe<Array<{ tenant_id: string; deleted_at: Date | null; status: string }>>(
       `SELECT tenant_id, deleted_at, status FROM ${table} WHERE id = $1::uuid FOR UPDATE`,
       input.resourceId,

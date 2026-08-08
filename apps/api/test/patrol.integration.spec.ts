@@ -10,6 +10,7 @@
  *  - 복제본 2개를 기동해도 한 주기에 1회만 실행되고 감사 기록도 1건
  *  - 순찰 실패가 'ok' 로 접히지 않고 'failed' 로 구분된다
  */
+import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { config } from 'dotenv';
@@ -109,7 +110,7 @@ describe('WP-14a 런타임 불변식 순찰 (실 DB)', () => {
 
     const audit = new AuditService();
     notifier = new CollectingNotifier();
-    patrol = new GovernancePatrolService(p, audit, new ResourceGrantService(audit, new GovernanceFreezeService(p, audit)), new PrismaGrantStore(p), notifier);
+    patrol = new GovernancePatrolService(p, audit, new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p)), new PrismaGrantStore(p), notifier);
     checkpoints = new AuditCheckpointService(p);
 
     // 기본 테넌트는 RI-1·RI-6 이 전 테넌트를 훑으므로 반드시 정상 상태여야 한다
@@ -413,7 +414,7 @@ describe('WP-14a 런타임 불변식 순찰 (실 DB)', () => {
 
   it('불변식 SQL 이 없으면 "검사 실패"로 구분되고 ok 로 접히지 않는다 (RT-20)', async () => {
     const audit = new AuditService();
-    const broken = new GovernancePatrolService(p, audit, new ResourceGrantService(audit, new GovernanceFreezeService(p, audit)), new PrismaGrantStore(p), notifier);
+    const broken = new GovernancePatrolService(p, audit, new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p)), new PrismaGrantStore(p), notifier);
     // 파일명을 존재하지 않는 것으로 바꿔 실패를 주입한다
     const registry = await import('../src/governance/invariant.registry');
     const target = registry.INVARIANTS.find((i) => i.id === 'RI-2')!;
@@ -464,7 +465,7 @@ describe('WP-14a 런타임 불변식 순찰 (실 DB)', () => {
     const audit = new AuditService();
     const replica = new GovernancePatrolService(
       replicaClient as unknown as PrismaService, audit,
-      new ResourceGrantService(audit, new GovernanceFreezeService(p, audit)), new PrismaGrantStore(replicaClient as unknown as PrismaService),
+      new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p)), new PrismaGrantStore(replicaClient as unknown as PrismaService),
       notifier,
     );
 

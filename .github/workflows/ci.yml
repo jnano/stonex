@@ -298,3 +298,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec prisma generate
       - run: pnpm g5
+
+  g6-kernel:
+    name: 'G-6-lite 커널 보호 파일 (RT-35)'
+    runs-on: ubuntu-latest
+    # kernel-change 라벨 = 커널 변경의 명시 승인. 라벨이 있으면 검사를 알리고 통과한다.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: SKIP_G6=${{ contains(github.event.pull_request.labels.*.name, 'kernel-change') && '1' || '0' }} bash scripts/g6-protected-files.sh

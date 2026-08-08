@@ -9,6 +9,7 @@
     "test": "pnpm -r --if-present test",
     "g4": "tsx governance/g4-seed-check.ts",
     "g5": "tsx --tsconfig apps/api/tsconfig.json apps/api/src/bootstrap-check.ts",
+    "g6": "bash scripts/g6-protected-files.sh",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx db/seeds/run.ts",
     "db:verify": "tsx db/seeds/verify.ts"

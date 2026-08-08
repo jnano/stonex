@@ -2,6 +2,7 @@
  * Grant 평가 경로(2·4단계) 통합 테스트 — WP-3 DoD: resource_grants 수동 삽입 데이터로 검증.
  * 실제 PostgreSQL + PrismaGrantStore 경유 (인메모리 스토어가 아닌 실 인덱스 경로).
  */
+import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { config } from 'dotenv';
@@ -39,7 +40,7 @@ describe('Grant 평가 경로 2·4단계 (실 DB)', () => {
     });
     process.env.DATABASE_URL = TEST_URL; // PrismaService 가 테스트 DB를 보게 한다
     prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: TEST_URL }) });
-    svc = new AuthorizationService(new PrismaGrantStore(prisma as unknown as PrismaService));
+    svc = new AuthorizationService(new PrismaGrantStore(prisma as unknown as PrismaService), testRegistry(prisma as unknown as PrismaService));
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'grant-test' } });
     const owner = await prisma.user.create({ data: { tenant_id: TENANT, email: `o-${Date.now()}@t.local`, password_hash: 'x', name: '소유자', status: 'ACTIVE' } });
