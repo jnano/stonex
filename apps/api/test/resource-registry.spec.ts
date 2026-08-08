@@ -60,8 +60,10 @@ describe('ResourceTypeRegistry — 등록 검증 (단위)', () => {
     expect(r.statusesAllowing('domain', 'domain.read')).toEqual(['UNVERIFIED', 'VERIFIED', 'SUSPENDED']);
     expect(r.statusesAllowing('domain', 'domain.update')).toEqual(['UNVERIFIED', 'VERIFIED']);
     expect(r.statusesAllowing('domain', 'domain.read.all')).toEqual(['UNVERIFIED', 'VERIFIED', 'SUSPENDED']);
+    // WP-B1 에서 board 가 등록됐다 — §9.1 경로의 첫 신규 사용자
+    expect(r.statusesAllowing('board', 'board.read')).toEqual(['ACTIVE', 'ARCHIVED']);
     // 미등록 타입은 어떤 상태로도 접근 불가 — 목록 쿼리가 빈 집합이 된다
-    expect(r.statusesAllowing('board', 'board.read')).toEqual([]);
+    expect(r.statusesAllowing('wiki', 'wiki.read')).toEqual([]);
   });
 });
 

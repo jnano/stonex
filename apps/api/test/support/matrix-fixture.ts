@@ -75,3 +75,25 @@ export async function createActorForRole(
   const token = await tokens.signAccess({ sub: user.id, tenant: tenantId, pv: user.perm_version });
   return { row: roleCode as MatrixRow, userId: user.id, authorization: `Bearer ${token}` };
 }
+
+/**
+ * 행위자 토큰 재발급 — **매트릭스 각 행 판정의 독립성 보장.**
+ *
+ * 일부 라우트는 성공 부작용으로 행위자 자신의 세션을 폐기한다(pv 증가 — 예: 온보딩
+ * 비밀번호 설정). 토큰을 한 번만 발급하면 그 라우트 이후의 모든 행이 401 로 죽는데,
+ * 401 도 'deny' 로 접히므로 **권한 판정이 아니라 세션 상태가 골든에 굳는다.**
+ * 실제로 매트릭스 후반부 행들이 이렇게 오염된 채 잠복해 있었고(뒤 행들이 우연히 전부
+ * deny 라 안 보였다), board 행 추가(WP-B1)에서 드러났다. 현재 pv 로 다시 서명해
+ * 각 (엔드포인트 × 행위자) 판정을 세션 이력과 무관하게 만든다.
+ */
+export async function refreshActorToken(
+  prisma: PrismaClient,
+  tokens: TokenService,
+  tenantId: string,
+  actor: RowActor,
+): Promise<void> {
+  if (!actor.userId) return; // anonymous
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.userId } });
+  const token = await tokens.signAccess({ sub: user.id, tenant: tenantId, pv: user.perm_version });
+  actor.authorization = `Bearer ${token}`;
+}

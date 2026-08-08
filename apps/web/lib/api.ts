@@ -296,6 +296,48 @@ export interface TestResult {
   message: string;
 }
 
+
+// ── board 모듈 기여 시작 (D-2, WP-B1) ──
+export interface BoardSummary {
+  id: string;
+  slug: string;
+  name: string;
+  boardType: string;
+  visibility: string;
+  status: string;
+  postCount: number;
+  createdAt: string;
+}
+
+export interface PostSummary {
+  id: string;
+  boardId: string;
+  ownerId: string;
+  title: string;
+  isPinned: boolean;
+  commentCount: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface PostDetail extends PostSummary {
+  bodyHtml: string;
+  bodyMd: string;
+  updatedAt: string;
+}
+
+export interface CommentView {
+  id: string;
+  postId: string;
+  ownerId: string;
+  parentId: string | null;
+  depth: number;
+  bodyHtml: string;
+  status: string;
+  createdAt: string;
+}
+// ── board 모듈 기여 끝 ──
+
 export const endpoints = {
   login: (email: string, password: string) =>
     api<{ accessToken: string; refreshToken: string }>('/auth/login', {
@@ -339,6 +381,14 @@ export const endpoints = {
   ban: (id: string) => api<MemberDetail>(`/members/${id}/ban`, { method: 'POST' }),
   unban: (id: string) => api<MemberDetail>(`/members/${id}/unban`, { method: 'POST' }),
   // ── 파일 (FILE-1~7) ──
+  // ── board 모듈 기여 (D-2, WP-B1) ──
+  boards: (page = 1) => api<{ items: BoardSummary[]; total: number }>(`/boards?page=${page}`),
+  board: (id: string) => api<BoardSummary>(`/boards/${id}`),
+  boardPosts: (boardId: string, page = 1) =>
+    api<{ items: PostSummary[]; total: number }>(`/boards/${boardId}/posts?page=${page}`),
+  post: (id: string) => api<PostDetail>(`/posts/${id}`),
+  postComments: (id: string) => api<CommentView[]>(`/posts/${id}/comments`),
+
   files: (page = 1) => api<{ items: FileSummary[]; total: number }>(`/files?page=${page}`),
   file: (id: string) => api<FileSummary>(`/files/${id}`),
   renameFile: (id: string, name: string) =>

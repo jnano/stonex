@@ -12,6 +12,12 @@ import {
 import { GovernanceController } from './governance/governance.controller';
 import { AdminAuditController } from './admin/audit.controller';
 import { SettingsController } from './settings/settings.controller';
+import {
+  BoardAdminController,
+  BoardsController,
+  CommentsController,
+  PostsController,
+} from './board/board.controllers';
 
 /**
  * 전체 컨트롤러 목록 — AppModule 과 G-5 검사(bootstrap-check)가 공유하는 유일한 출처.
@@ -32,4 +38,9 @@ export const CONTROLLERS = [
   GovernanceController,
   AdminAuditController,
   SettingsController,
+  // ── board 모듈 기여 (D-2) ──
+  BoardsController,
+  PostsController,
+  CommentsController,
+  BoardAdminController,
 ];

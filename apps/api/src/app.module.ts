@@ -27,6 +27,12 @@ import { OwnerCleanupRegistry } from './authorization/owner-cleanup';
 import { FileOwnerCleanupHook } from './files/file.cleanup';
 import { DomainOwnerCleanupHook } from './domains/domain.cleanup';
 import { OwnerCleanupWorker } from './members/owner-cleanup.worker';
+import { boardDescriptor, commentDescriptor, postDescriptor } from './board/board.descriptors';
+import { BoardOwnerCleanupHook } from './board/board.cleanup';
+import { BoardPolicyService } from './board/board-policy.service';
+import { BoardsService } from './board/boards.service';
+import { PostsService } from './board/posts.service';
+import { CommentsService } from './board/comments.service';
 import { AuthGuard, TOKEN_VERIFIER } from './authorization/guards/auth.guard';
 import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
@@ -113,6 +119,10 @@ import {
         const registry = new ResourceTypeRegistry(prisma);
         registry.register(fileDescriptor(prisma));
         registry.register(domainDescriptor(prisma));
+        // ── board 모듈 기여 (D-2) ──
+        registry.register(boardDescriptor(prisma));
+        registry.register(postDescriptor(prisma));
+        registry.register(commentDescriptor(prisma));
         return registry;
       },
     },
@@ -120,13 +130,19 @@ import {
     // 소유자 정리 훅 (WP-K2) — 훅 등록도 여기(확장 지점)서 한다. 커널은 목록만 안다.
     FileOwnerCleanupHook,
     DomainOwnerCleanupHook,
+    BoardOwnerCleanupHook,
     {
       provide: OwnerCleanupRegistry,
-      inject: [FileOwnerCleanupHook, DomainOwnerCleanupHook],
-      useFactory: (file: FileOwnerCleanupHook, domain: DomainOwnerCleanupHook): OwnerCleanupRegistry => {
+      inject: [FileOwnerCleanupHook, DomainOwnerCleanupHook, BoardOwnerCleanupHook],
+      useFactory: (
+        file: FileOwnerCleanupHook,
+        domain: DomainOwnerCleanupHook,
+        board: BoardOwnerCleanupHook,
+      ): OwnerCleanupRegistry => {
         const registry = new OwnerCleanupRegistry();
         registry.register(file);
         registry.register(domain);
+        registry.register(board); // ── board 모듈 기여 (D-2) ──
         return registry;
       },
     },
@@ -161,6 +177,11 @@ import {
     { provide: DNS_TXT_RESOLVER, useClass: NodeDnsTxtResolver },
     SuperAdminGuardService,
     SettingsService,
+    // ── board 모듈 기여 (D-2) ──
+    BoardPolicyService,
+    BoardsService,
+    PostsService,
+    CommentsService,
     /**
      * 메일 발송 — **설정은 DB 한 곳에서 온다**(범용 배포 지원).
      * 환경 변수 폴백을 두지 않는 이유는, 두 곳에서 읽으면 "화면에는 A 인데 실제로는 B" 상태가

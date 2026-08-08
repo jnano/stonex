@@ -2,6 +2,7 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 import { ResourceTypeRegistry } from '../../src/authorization/resource-registry';
 import { fileDescriptor } from '../../src/files/file.descriptor';
 import { domainDescriptor } from '../../src/domains/domain.descriptor';
+import { boardDescriptor, commentDescriptor, postDescriptor } from '../../src/board/board.descriptors';
 
 /**
  * 테스트용 레지스트리 — app.module 팩토리와 같은 구성(file·domain 서술자).
@@ -16,5 +17,9 @@ export function testRegistry(p?: PrismaService): ResourceTypeRegistry {
   const registry = new ResourceTypeRegistry(prisma);
   registry.register(fileDescriptor(prisma));
   registry.register(domainDescriptor(prisma));
+  // ── board 모듈 기여 (D-2) — app.module 팩토리와 동일 구성 유지 ──
+  registry.register(boardDescriptor(prisma));
+  registry.register(postDescriptor(prisma));
+  registry.register(commentDescriptor(prisma));
   return registry;
 }
