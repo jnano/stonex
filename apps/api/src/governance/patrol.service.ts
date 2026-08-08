@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import type { Prisma } from '@stonex/db';
+import { ResourceTypeRegistry } from '../authorization/resource-registry';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ResourceGrantService } from '../authorization/resource-grant.service';
@@ -14,6 +15,7 @@ import {
   Violation,
   assertContextUsable,
   buildContext,
+  renderSql,
   loadSql,
 } from './invariant.registry';
 
@@ -84,6 +86,7 @@ export class GovernancePatrolService {
     private readonly audit: AuditService,
     private readonly grants: ResourceGrantService,
     private readonly grantStore: PrismaGrantStore,
+    private readonly registry: ResourceTypeRegistry,
     @Inject(GOVERNANCE_NOTIFIER) private readonly notifier: GovernanceNotifier,
   ) {}
 
@@ -116,7 +119,7 @@ export class GovernancePatrolService {
     this.running = true;
     const startedAt = new Date();
     try {
-      const context = buildContext();
+      const context = buildContext(this.registry.all().map((d) => d.type));
       // **fail-open 차단**: 컨텍스트가 비면 RI-3·RI-4가 위반 0건을 반환한다.
       // 검사 불가 상태를 "이상 없음"으로 보고하지 않도록 여기서 끊는다.
       assertContextUsable(context);
@@ -198,7 +201,9 @@ export class GovernancePatrolService {
     // 그 롤백 실패가 트랜잭션 전체를 abort 시켜 **뒤의 불변식이 전부 무너진다**(실제로 재현됨).
     await tx.$executeRawUnsafe(`SAVEPOINT ${savepoint}`);
     try {
-      const sql = loadSql(def);
+      // {{RESOURCE_UNION}} 은 레지스트리가 생성한다(WP-K3) — 테이블명은 SQL 파라미터로
+      // 바인딩할 수 없고, 서술자 식별자는 등록 시 검증 + 부팅 시 스키마 대조를 통과한 값이다
+      const sql = renderSql(loadSql(def), this.registry.all());
       // 컨텍스트가 필요 없는 불변식(RI-1·2·5·7)도 있다. 파라미터를 무조건 넘기면
       // "bind message supplies 1 parameters, but prepared statement requires 0" 으로 죽는다.
       const rows = sql.includes('$1')

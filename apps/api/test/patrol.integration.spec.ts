@@ -110,7 +110,7 @@ describe('WP-14a 런타임 불변식 순찰 (실 DB)', () => {
 
     const audit = new AuditService();
     notifier = new CollectingNotifier();
-    patrol = new GovernancePatrolService(p, audit, new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p)), new PrismaGrantStore(p), notifier);
+    patrol = new GovernancePatrolService(p, audit, new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p)), new PrismaGrantStore(p), testRegistry(p), notifier);
     checkpoints = new AuditCheckpointService(p);
 
     // 기본 테넌트는 RI-1·RI-6 이 전 테넌트를 훑으므로 반드시 정상 상태여야 한다
@@ -396,6 +396,15 @@ describe('WP-14a 런타임 불변식 순찰 (실 DB)', () => {
       expect(result.unknownResourceTypes).toContain('board.post');
       expect(check(result, 'RI-3').status).toBe('ok');
       expect(check(result, 'RI-4').status).toBe('ok');
+      // WP-K3: 미등록 타입은 RESOURCE_UNION 이 순회하지 않아 RI-4/5/8 에 잡히지 않는다 —
+      // 그 사각을 RI-9 가 **SQL 오류 없이** "고아 모듈 권한"으로 보고한다(검사 실패 0)
+      expect(result.checks.filter((c) => c.status === 'failed')).toHaveLength(0);
+      expect(check(result, 'RI-9').status).toBe('violated');
+      expect(
+        check(result, 'RI-9').violations.some(
+          (v) => (v.detail as { resourceType?: string }).resourceType === 'board.post',
+        ),
+      ).toBe(true);
       // 살아 있어야 한다
       expect(await prisma.resourceGrant.count({ where: { resource_type: 'board.post' } })).toBe(1);
       expect(notifier.alerts.some((a) => a.level === 'L3' && a.title.includes('검사 불가'))).toBe(true);
@@ -405,16 +414,18 @@ describe('WP-14a 런타임 불변식 순찰 (실 DB)', () => {
   });
 
   it('화이트리스트가 비면 조용히 통과하지 않고 검사 불가로 끊긴다 (fail-open 차단)', () => {
-    const ctx = buildContext();
+    const ctx = buildContext(testRegistry(p).all().map((d) => d.type));
     expect(() => assertContextUsable(ctx)).not.toThrow();
     expect(() => assertContextUsable({ ...ctx, grantWhitelist: {} })).toThrow(/검사 불가/);
     expect(() => assertContextUsable({ ...ctx, grantWhitelist: { file: [] } })).toThrow(/검사 불가/);
     expect(() => assertContextUsable({ ...ctx, systemRoles: [] })).toThrow(/검사 불가/);
+    // WP-K3: 레지스트리가 비면 RI-9 가 전 Grant 를 고아로 보고한다 — 검사 불가로 끊는다
+    expect(() => assertContextUsable({ ...ctx, registeredResourceTypes: [] })).toThrow(/검사 불가/);
   });
 
   it('불변식 SQL 이 없으면 "검사 실패"로 구분되고 ok 로 접히지 않는다 (RT-20)', async () => {
     const audit = new AuditService();
-    const broken = new GovernancePatrolService(p, audit, new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p)), new PrismaGrantStore(p), notifier);
+    const broken = new GovernancePatrolService(p, audit, new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p)), new PrismaGrantStore(p), testRegistry(p), notifier);
     // 파일명을 존재하지 않는 것으로 바꿔 실패를 주입한다
     const registry = await import('../src/governance/invariant.registry');
     const target = registry.INVARIANTS.find((i) => i.id === 'RI-2')!;
@@ -465,7 +476,7 @@ describe('WP-14a 런타임 불변식 순찰 (실 DB)', () => {
     const audit = new AuditService();
     const replica = new GovernancePatrolService(
       replicaClient as unknown as PrismaService, audit,
-      new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p)), new PrismaGrantStore(replicaClient as unknown as PrismaService),
+      new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p)), new PrismaGrantStore(replicaClient as unknown as PrismaService), testRegistry(p),
       notifier,
     );
 

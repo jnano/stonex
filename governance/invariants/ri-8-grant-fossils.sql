@@ -10,9 +10,13 @@
 --
 -- **자동 회수하지 않는다(L-3 보고)** — 부여자의 강등이 공유 자체를 무효로 만드는지는
 -- 업무 판단이며, 자동 삭제하면 관리자 교체 때마다 정상 공유가 대량으로 끊긴다.
+-- WP-K3: 소유자 조회는 타입별 CASE 하드코딩 대신 RESOURCE_UNION 플레이스홀더 (레지스트리 생성).
 WITH ctx AS (SELECT $1::jsonb AS c),
 known AS (
   SELECT jsonb_array_elements_text(c -> 'knownResourceTypes') AS resource_type FROM ctx
+),
+resources AS (
+  {{RESOURCE_UNION}}
 ),
 granter_perms AS (
   SELECT ur.user_id, p.code
@@ -23,12 +27,9 @@ granter_perms AS (
    WHERE ur.expires_at IS NULL OR ur.expires_at > now()
 ),
 owned AS (
-  SELECT g.id AS grant_id, g.granted_by,
-         CASE g.resource_type
-           WHEN 'file'   THEN (SELECT f.owner_id FROM files f WHERE f.id = g.resource_id)
-           WHEN 'domain' THEN (SELECT d.owner_id FROM domains d WHERE d.id = g.resource_id)
-         END AS owner_id
+  SELECT g.id AS grant_id, g.granted_by, r.owner_id
     FROM resource_grants g
+    LEFT JOIN resources r ON r.resource_type = g.resource_type AND r.id = g.resource_id
 )
 SELECT
   'RI-8'                                            AS ri_id,
