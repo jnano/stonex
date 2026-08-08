@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@stonex/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { GrantStore } from './types';
 
@@ -66,5 +67,23 @@ export class PrismaGrantStore implements GrantStore {
   /** Grant 1건 조회 (회수 전 관계 판정용). 조회 전용 통로 */
   async findById(grantId: string) {
     return this.prisma.resourceGrant.findUnique({ where: { id: grantId } });
+  }
+
+  /**
+   * 전체 Grant 수 — 순찰의 blast-radius 비율 계산용(WT-11). 조회 전용 통로.
+   * 순찰은 트랜잭션 안에서 돌므로 클라이언트를 주입받는다.
+   */
+  async countAll(tx: Prisma.TransactionClient): Promise<number> {
+    return tx.resourceGrant.count();
+  }
+
+  /** 만료된 Grant id 목록 — 정리 배치용. 조회 전용 통로 */
+  async findExpired(limit: number): Promise<string[]> {
+    const rows = await this.prisma.resourceGrant.findMany({
+      where: { expires_at: { lt: new Date() } },
+      select: { id: true },
+      take: limit,
+    });
+    return rows.map((r) => r.id);
   }
 }

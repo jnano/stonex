@@ -165,10 +165,16 @@ export class ResourceGrantService {
     return created;
   }
 
-  /** Grant 회수 — 회수된 행 내용을 감사에 남긴다(누가 언제 무엇을 끊었는지 추적) */
+  /**
+   * Grant 회수 — 회수된 행 내용을 감사에 남긴다(누가 언제 무엇을 끊었는지 추적).
+   *
+   * `actorId=null` 은 시스템 행위(순찰 워커의 L-1 자동 회수)를 뜻하며, 그때는 `reason` 에
+   * 어느 불변식이 왜 끊었는지를 담는다. **회수 전 행 전체를 `detail.before` 에 남기는 것이
+   * 복구 스크립트의 유일한 근거**이므로 필드를 줄이지 않는다.
+   */
   async revoke(
     tx: Prisma.TransactionClient,
-    input: { tenantId: string; actorId: string; grantId: string },
+    input: { tenantId: string; actorId: string | null; grantId: string; reason?: string },
   ): Promise<void> {
     const grant = await tx.resourceGrant.findUnique({ where: { id: input.grantId } });
     if (!grant) throw new NotFoundException();
@@ -182,10 +188,19 @@ export class ResourceGrantService {
       targetId: grant.resource_id,
       detail: {
         before: {
-          subject: grant.subject_id, permissionId: grant.permission_id,
-          effect: grant.effect, grantedBy: grant.granted_by,
+          id: grant.id,
+          tenantId: grant.tenant_id,
+          subjectType: grant.subject_type,
+          subject: grant.subject_id,
+          resourceType: grant.resource_type,
+          resourceId: grant.resource_id,
+          permissionId: grant.permission_id,
+          effect: grant.effect,
+          grantedBy: grant.granted_by,
+          expiresAt: grant.expires_at?.toISOString() ?? null,
         },
         after: {},
+        ...(input.reason ? { reason: input.reason } : {}),
       },
     });
   }

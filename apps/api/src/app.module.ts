@@ -30,6 +30,9 @@ import { DomainsService } from './domains/domains.service';
 import { DomainVerificationService } from './domains/verification.service';
 import { DomainDelegationsService } from './domains/delegations.service';
 import { DomainTransfersService } from './domains/transfers.service';
+import { GovernancePatrolService } from './governance/patrol.service';
+import { AuditCheckpointService } from './governance/checkpoint.service';
+import { GOVERNANCE_NOTIFIER, LogGovernanceNotifier } from './governance/notifier';
 import { DNS_TXT_RESOLVER, NodeDnsTxtResolver } from './domains/dns-resolver';
 import { SuperAdminGuardService } from './members/super-admin-guard.service';
 import { AuthService } from './auth/auth.service';
@@ -97,6 +100,10 @@ import {
     DomainVerificationService,
     DomainDelegationsService,
     DomainTransfersService,
+    GovernancePatrolService,
+    AuditCheckpointService,
+    // 운영에서는 webhook·이메일 어댑터로 교체한다 (인터페이스만 지키면 순찰 코드는 그대로)
+    { provide: GOVERNANCE_NOTIFIER, useClass: LogGovernanceNotifier },
     // §13.2 미결(HTML 파일 방식 병행)이 결정되면 이 바인딩만 교체한다
     { provide: DNS_TXT_RESOLVER, useClass: NodeDnsTxtResolver },
     SuperAdminGuardService,
