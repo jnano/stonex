@@ -6,16 +6,23 @@ import { AuthService, TokenPair } from './auth.service';
 
 /**
  * 인증 엔드포인트 (기획서 §6.1, §7.2).
- * 인증 API 속도 제한 5회/분/IP (§10.4) — @Throttle 로 선언.
+ * 인증 API 속도 제한 5회/분/IP (§10.4) — @Throttle 로 전역 `default` 정책(120회/분)을 덮어쓴다.
+ * (별도 named throttler 를 등록하면 그것이 전 라우트에 함께 적용된다 — app.module 주석 참조)
  * 온보딩 경로는 인증은 요구하되 Permission 검사 대상이 아니므로 @AuthenticatedOnly 로 선언하고,
  * 온보딩 게이트(§8.5 ONBOARDING_ALLOWED_PATHS)가 미완료 세션에도 이 경로만 허용한다.
  */
+/**
+ * 인증 API 속도 제한 (§10.4). 값은 환경 변수로만 조정한다 — G-1 매트릭스는 한 엔드포인트를
+ * 6개 행(비인증 + 역할 5종)이 연속 호출하므로, 기본값 5 로는 마지막 행이 항상 429 가 된다.
+ */
+const AUTH_RATE = { limit: Number(process.env.AUTH_RATE_LIMIT ?? 5), ttl: 60_000 };
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
-  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: AUTH_RATE })
   @Post('signup')
   async signup(@Body() body: { email: string; password: string; name: string }): Promise<{ ok: true }> {
     await this.auth.signup(body.email, body.password, body.name);
@@ -30,21 +37,21 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: AUTH_RATE })
   @Post('login')
   async login(@Body() body: { email: string; password: string }): Promise<TokenPair> {
     return this.auth.login(body.email, body.password);
   }
 
   @Public()
-  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: AUTH_RATE })
   @Post('refresh')
   async refresh(@Body() body: { refreshToken: string }): Promise<TokenPair> {
     return this.auth.refresh(body.refreshToken);
   }
 
   @Public()
-  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: AUTH_RATE })
   @Post('password-reset/request')
   async requestReset(@Body() body: { email: string }): Promise<{ ok: true }> {
     await this.auth.requestPasswordReset(body.email);

@@ -20,6 +20,22 @@ const RESOURCE_STATE_GATE: Record<
 };
 
 /**
+ * 특정 Permission 으로 접근 가능한 리소스 상태 집합 (§4.7 1단계의 목록 대응물).
+ *
+ * 목록 API 는 리소스를 하나씩 평가기에 넣지 않고 쿼리 한 방으로 행 범위를 정하므로,
+ * 1단계 게이트를 **쿼리 조건으로 다시 써야 한다**. 그 조건을 손으로 적으면 §15.1 이중 구현이
+ * 되고 게이트 표가 바뀔 때 목록만 뒤처진다 — 특히 도메인은 `readExtra` 때문에 조회 가능 상태가
+ * 접근 가능 상태보다 넓어(SUSPENDED 포함) 손으로 옮겨 적으면 틀리기 쉽다.
+ */
+export function statusesAllowing(resourceType: string, permission: string): readonly string[] {
+  const gate = RESOURCE_STATE_GATE[resourceType];
+  if (!gate) return [];
+  const extra =
+    gate.readExtra && gate.readExtra.permissions.includes(permission) ? gate.readExtra.statuses : [];
+  return [...gate.accessible, ...extra];
+}
+
+/**
  * 권한 평가기 (기획서 §4.7). 모든 권한 검사는 이 단일 함수를 통과한다(INV-1).
  * 평가 순서는 §4.7 그대로이며, 각 단계에서 결정되면 즉시 종료한다.
  * 프론트엔드·핸들러가 이 로직을 중복 구현하는 것을 금지한다.

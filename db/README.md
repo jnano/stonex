@@ -27,6 +27,10 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 | `files` 부분 인덱스 `idx_files_owner` (WHERE status='ACTIVE') | `20260807112119_init` |
 | `audit.audit_logs` 파티션 테이블 전체 (Prisma 모델 없음 — raw SQL로만 접근) | `20260807130000_audit_schema` |
 | `audit.create_partition(month)` 함수 | `20260807130000_audit_schema` |
+| `domains` 부분 유니크 `uq_domains_fqdn_live` (WHERE deleted_at IS NULL) | `20260808014055_domain_verification` |
+| `domains` 부분 인덱스 `idx_domains_owner` (WHERE deleted_at IS NULL) | `20260808014055_domain_verification` |
+| `domain_verification_attempts` 부분 유니크 `uq_domain_verification_inflight` (WHERE state IN PENDING/RUNNING) | `20260808014055_domain_verification` |
+| `domain_verification_attempts.state` CHECK (PENDING\|RUNNING\|SUCCEEDED\|FAILED) | `20260808014055_domain_verification` |
 
 ## 업로드 세션 (`file_uploads`)
 
@@ -34,6 +38,22 @@ Prisma 스키마가 표현하지 못해 마이그레이션 SQL에 수기로 관�
 완료 콜백은 **불투명 `upload_id` 만** 받는다 — `storage_key` 를 클라이언트에 노출하면 §10.2 위반이자
 타인의 오브젝트를 지목해 자기 파일 행을 만드는 경로가 열린다.
 만료된 미완료 세션은 `UploadSessionService.collectGarbage()`(매시 20분)가 오브젝트와 함께 정리한다.
+
+## 도메인 FQDN 유일성 (WP-12)
+
+`domains` 의 `(tenant_id, fqdn)` 유일성은 **전체 유니크가 아니라 부분 유니크**(`WHERE deleted_at IS NULL`)다.
+전체 유니크로 두면 소프트 삭제된 행이 슬롯을 계속 점유해 **같은 도메인을 영원히 재등록할 수 없다.**
+
+부분 유니크는 바이트 단위 비교이므로, **애플리케이션이 항상 정규형으로 저장하는 것이 전제다**
+(`apps/api/src/domains/fqdn.ts` — 소문자·후행 점 제거·punycode). 정규화를 건너뛰면
+`EXAMPLE.com` 과 `example.com` 이 별개 행이 되어 중복 방지가 무력화되고, 같은 도메인을
+두 사람이 각각 `VERIFIED` 로 만들 수 있다.
+
+## 도메인 검증 잡 (`domain_verification_attempts`)
+
+검증 시도 기록과 **잡 큐를 겸하는** 테이블이다. 실패 사유를 감사 로그에 넣지 않는 이유는,
+검증 실패의 대부분이 사용자의 DNS 설정 오류라 빈도가 높아 권한 변경 기록을 덮어 버리기 때문이다.
+`DomainVerificationService` 의 워커(10초 간격)가 `FOR UPDATE SKIP LOCKED` 로 PENDING 행을 선점한다.
 
 ## 감사 로그는 전용 스키마 `audit` 에 둔다 (중요)
 

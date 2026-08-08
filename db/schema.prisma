@@ -32,6 +32,8 @@ model Tenant {
   domains          Domain[]
   file_uploads     FileUpload[]
 
+  domain_verification_attempts DomainVerificationAttempt[]
+
   @@map("tenants")
 }
 
@@ -181,6 +183,7 @@ model Domain {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenant_id    String    @db.Uuid
   owner_id     String    @db.Uuid
+  /** 항상 정규형(소문자·후행 점 제거·punycode)으로 저장한다 — `fqdn.ts` 참조 */
   fqdn         String    @db.VarChar(253)
   status       String    @default("UNVERIFIED") @db.VarChar(20)
   verify_token String?   @db.VarChar(64)
@@ -191,8 +194,38 @@ model Domain {
   tenant Tenant @relation(fields: [tenant_id], references: [id])
   owner  User   @relation(fields: [owner_id], references: [id])
 
-  @@unique([tenant_id, fqdn])
+  verification_attempts DomainVerificationAttempt[]
+
+  // (tenant_id, fqdn) 유일성은 **부분 유니크 인덱스**로 강제한다(WP-12 마이그레이션의 수기 SQL).
+  // 전체 유니크로 두면 소프트 삭제된 행이 슬롯을 계속 점유해 같은 FQDN 을 영원히 재등록할 수 없다.
   @@map("domains")
+}
+
+/**
+ * 도메인 소유권 검증 시도 (WP-12, DOM-3).
+ *
+ * **감사 로그가 아니라 이 테이블에 기록한다** — 검증 실패는 사용자의 DNS 설정 오류가 대부분이라
+ * 빈도가 높고, 감사 로그(권한 변경의 법적 기록)에 섞이면 추적 신호가 묻힌다(작업지시서 WP-12-2).
+ * 동시에 이 테이블은 **검증 잡 큐를 겸한다** — PENDING 행을 워커가 집어간다.
+ */
+model DomainVerificationAttempt {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id    String    @db.Uuid
+  domain_id    String    @db.Uuid
+  requested_by String    @db.Uuid
+  method       String    @default("DNS_TXT") @db.VarChar(20) // §13.2 미결: HTML 방식 병행 시 확장
+  state        String    @default("PENDING") @db.VarChar(20) // PENDING | RUNNING | SUCCEEDED | FAILED
+  /** 실패 사유 — 사용자에게 그대로 노출되므로 내부 스택은 담지 않는다 */
+  reason       String?   @db.VarChar(200)
+  created_at   DateTime  @default(now()) @db.Timestamptz()
+  finished_at  DateTime? @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+  domain Domain @relation(fields: [domain_id], references: [id])
+
+  @@index([state, created_at]) // 워커 픽업
+  @@index([domain_id, created_at]) // 쿨다운·일일 상한 판정
+  @@map("domain_verification_attempts")
 }
 
 // 업로드 세션 (WP-9) — 서명 URL 발급 시점의 조건을 서버가 보관한다.
