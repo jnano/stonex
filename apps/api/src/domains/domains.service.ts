@@ -87,6 +87,8 @@ export class DomainsService {
       tenant_id: subject.tenantId,
       status: { in: [...this.registry.statusesAllowing('domain', 'domain.read')] },
       deleted_at: null,
+      // 소유자가 탈퇴한 리소스는 퍼지 전이라도 목록에서 즉시 제외한다(WP-K2, DEC-3)
+      owner: { deleted_at: null },
       OR: [{ owner_id: subject.id }, { id: { in: [...allowIds] } }],
       ...(denyIds.size > 0 ? { NOT: { id: { in: [...denyIds] } } } : {}),
     };

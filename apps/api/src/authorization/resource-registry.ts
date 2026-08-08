@@ -28,6 +28,12 @@ export interface LoadedResourceRow {
   status: string;
   tenantId: string;
   deletedAt: Date | null;
+  /**
+   * 소유자의 삭제 표식 (WP-K2, DEC-3 즉시 차단). 소유자가 탈퇴하면 리소스의 실제
+   * 소프트삭제는 퍼지 워커가 배치로 하지만(RT-27), **은닉은 이 표식으로 즉시** 걸린다 —
+   * 탈퇴 커밋과 리소스 정리 사이에 Grant 보유자가 접근하는 가시성 창을 없앤다.
+   */
+  ownerDeletedAt: Date | null;
 }
 
 export interface ResourceTypeDescriptor {

@@ -20,8 +20,11 @@ export const domainDescriptor = (prisma: PrismaService): ResourceTypeDescriptor 
     readExtra: { statuses: ['SUSPENDED'], permissions: ['domain.read', 'domain.read.all'] },
   },
   load: async (id) => {
-    const d = await prisma.domain.findUnique({ where: { id } });
+    const d = await prisma.domain.findUnique({ where: { id }, include: { owner: { select: { deleted_at: true } } } });
     if (!d) return null;
-    return { id: d.id, ownerId: d.owner_id, status: d.status, tenantId: d.tenant_id, deletedAt: d.deleted_at };
+    return {
+      id: d.id, ownerId: d.owner_id, status: d.status, tenantId: d.tenant_id,
+      deletedAt: d.deleted_at, ownerDeletedAt: d.owner.deleted_at,
+    };
   },
 });

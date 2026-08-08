@@ -9,6 +9,7 @@
  *  - 순찰 **실패**가 대시보드에 "검사 실패"로 구분 표시된다 (정상으로 오인 금지 — RT-20)
  *  - 이상 탐지 규칙이 정황을 신호로 올리되 자동 동결하지 않는다
  */
+import { INVARIANTS } from '../src/governance/invariant.registry';
 import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
@@ -273,7 +274,7 @@ describe('WP-14b L-2 동결 · 거버넌스 API (실 DB)', () => {
     expect(status.healthy).toBe(false);
     expect(status.lastRunAt).toBeNull();
     // 정의된 불변식 8종이 전부 나열되어야 한다 — 빠지면 "검사되지 않는 불변식"이 화면에서 사라진다
-    expect(status.checks).toHaveLength(8);
+    expect(status.checks).toHaveLength(INVARIANTS.length);
     expect(status.checks.every((c) => c.status === 'unknown')).toBe(true);
   });
 

@@ -23,6 +23,10 @@ import { ResourceLoaderRegistry } from './authorization/resource-loader';
 import { ResourceTypeRegistry } from './authorization/resource-registry';
 import { fileDescriptor } from './files/file.descriptor';
 import { domainDescriptor } from './domains/domain.descriptor';
+import { OwnerCleanupRegistry } from './authorization/owner-cleanup';
+import { FileOwnerCleanupHook } from './files/file.cleanup';
+import { DomainOwnerCleanupHook } from './domains/domain.cleanup';
+import { OwnerCleanupWorker } from './members/owner-cleanup.worker';
 import { AuthGuard, TOKEN_VERIFIER } from './authorization/guards/auth.guard';
 import { PermissionGuard } from './authorization/guards/permission.guard';
 import { DominanceGuard } from './authorization/guards/dominance.guard';
@@ -113,6 +117,20 @@ import {
       },
     },
     ResourceLoaderRegistry,
+    // 소유자 정리 훅 (WP-K2) — 훅 등록도 여기(확장 지점)서 한다. 커널은 목록만 안다.
+    FileOwnerCleanupHook,
+    DomainOwnerCleanupHook,
+    {
+      provide: OwnerCleanupRegistry,
+      inject: [FileOwnerCleanupHook, DomainOwnerCleanupHook],
+      useFactory: (file: FileOwnerCleanupHook, domain: DomainOwnerCleanupHook): OwnerCleanupRegistry => {
+        const registry = new OwnerCleanupRegistry();
+        registry.register(file);
+        registry.register(domain);
+        return registry;
+      },
+    },
+    OwnerCleanupWorker,
     PrismaGrantStore,
     { provide: GRANT_STORE, useExisting: PrismaGrantStore },
     AuthorizationService,

@@ -8,7 +8,6 @@ import { SnapshotService } from '../authorization/snapshot.service';
 import { checkDominance, checkRoleSubset } from '../authorization/dominance';
 import { SubjectSnapshot } from '../authorization/types';
 import { ResourceGrantService } from '../authorization/resource-grant.service';
-import { FilesService } from '../files/files.service';
 import { SuperAdminGuardService } from './super-admin-guard.service';
 import { MemberDetail, MemberSummary, toMemberDetail, toMemberSummary } from './member.serializer';
 
@@ -38,7 +37,6 @@ export class MembersService {
     private readonly snapshots: SnapshotService,
     private readonly superAdminGuard: SuperAdminGuardService,
     private readonly resourceGrants: ResourceGrantService,
-    private readonly files: FilesService,
   ) {}
 
   // ── MEM-2 목록·상세 ───────────────────────────────────────────
@@ -243,19 +241,18 @@ export class MembersService {
       await this.resourceGrants.cleanupForSubject(tx, targetUserId, {
         tenantId: actor.tenantId, actorId: actor.id,
       });
-      // MEM-6: 그 회원이 **소유한** 리소스도 처리한다(WT-17). 소유 파일을 남겨두면
+      // MEM-6: 그 회원이 **소유한** 리소스도 처리한다(WT-17). 소유 리소스를 남겨두면
       // 기존 ALLOW Grant 보유자가 평가기 4단계로 무기한 접근할 수 있고, RI-4 로도 잡히지 않는다.
-      // 보유 수에 비례하는 무제한 쓰기를 막기 위해 상한을 두고, 초과분은 순찰이 이어받는다.
-      const owned = await this.files.softDeleteOwnedBy(tx, targetUserId, {
-        tenantId: actor.tenantId, actorId: actor.id,
+      //
+      // WP-K2: 여기서는 퍼지 잡 1건만 넣는다(O(1)) — 보유량에 비례하는 쓰기를 트랜잭션에
+      // 넣으면 SuperAdminGuard 의 FOR UPDATE 와 경합한다(RT-27). 은닉은 위의
+      // deleted_at 표식이 **즉시** 담당하므로 가시성 창은 없다(DEC-3) — 로더와 목록이
+      // 소유자 삭제를 보고 커밋 직후부터 404/제외 처리한다. 실제 소프트삭제·Grant 정리는
+      // OwnerCleanupWorker 가 등록된 훅(file·domain·…)을 배치로 호출해 이어받는다.
+      // 어떤 리소스 타입이 있는지 이 파일은 더 이상 모른다.
+      await tx.ownerCleanupJob.create({
+        data: { tenant_id: actor.tenantId, user_id: targetUserId },
       });
-      if (owned.remaining > 0) {
-        await this.audit.record(tx, {
-          tenantId: actor.tenantId, actorId: actor.id, action: 'member.delete.owned_files.partial',
-          targetType: 'user', targetId: targetUserId,
-          detail: { before: {}, after: { processed: owned.processed, remaining: owned.remaining } },
-        });
-      }
       await this.permVersion.bumpInTx(tx, [targetUserId]);
       await this.audit.record(tx, {
         tenantId: actor.tenantId, actorId: actor.id, action: 'member.delete',
