@@ -30,10 +30,22 @@ const TENANT = '00000000-0000-0000-0000-000000009993';
  * 새 엔드포인트를 추가하면 여기에도 반드시 등록한다 — 누락은 매트릭스의 사각지대가 된다.
  * (G-5 가 "선언 누락"을 잡는다면, 이 목록은 "검증 누락"을 막는 장치다)
  */
-const ENDPOINTS: Array<{ id: string; method: 'get' | 'post' | 'patch' | 'put' | 'delete'; path: string; body?: object }> = [
+const ENDPOINTS: Array<{
+  id: string;
+  method: 'get' | 'post' | 'patch' | 'put' | 'delete';
+  path: string;
+  body?: object;
+  /**
+   * 5xx 가 그 엔드포인트의 **설계된 정상 응답**인 경우에만 지정한다(현재 readiness 하나뿐).
+   * 기본값은 "5xx = 판정 불가 → 테스트 실패"이며, 그 엄격함을 여기서 함부로 풀지 않는다.
+   */
+  serverErrorIsValid?: true;
+}> = [
   { id: 'GET /health', method: 'get', path: '/api/v1/health' },
   { id: 'GET /health/live', method: 'get', path: '/api/v1/health/live' },
-  { id: 'GET /health/ready', method: 'get', path: '/api/v1/health/ready' },
+  // readiness 는 의존성이 내려가면 503 을 반환하도록 설계돼 있다(WP-9). CI 환경에 스토리지가
+  // 없으면 503 이 정상이며, 이는 권한 판정과 무관하다 — @Public 이므로 인가는 통과한 것이다.
+  { id: 'GET /health/ready', method: 'get', path: '/api/v1/health/ready', serverErrorIsValid: true },
   { id: 'GET /me', method: 'get', path: '/api/v1/me' },
   { id: 'GET /members', method: 'get', path: '/api/v1/members' },
   { id: 'GET /members/me', method: 'get', path: '/api/v1/members/me' },
@@ -103,7 +115,7 @@ const ENDPOINTS: Array<{ id: string; method: 'get' | 'post' | 'patch' | 'put' | 
 ];
 
 /** 응답 상태 → 매트릭스 값. 권한 관점에서 '허용'인지 '거부'인지만 남긴다 */
-function verdict(status: number, context: string): 'allow' | 'deny' {
+function verdict(status: number, context: string, serverErrorIsValid = false): 'allow' | 'deny' {
   // 401/403/404 는 거부. 404 는 존재 은닉(§10.2)도 포함하므로 거부로 본다.
   // 4xx 중 400/409 는 권한은 통과하고 입력·상태 때문에 실패한 것이므로 '허용'으로 분류한다.
   if (status === 401 || status === 403 || status === 404) return 'deny';
@@ -111,7 +123,7 @@ function verdict(status: number, context: string): 'allow' | 'deny' {
   // 속도 제한에 걸린 행이 골든 파일에 "권한 허용"으로 굳어 있었다(WP-12에서 발견 —
   // 인증용 throttler 가 전 라우트에 적용돼 매트릭스의 마지막 행이 항상 429 였다).
   // 판정 불가는 조용히 통과시키지 말고 실패시킨다.
-  if (status === 429 || status >= 500) {
+  if (status === 429 || (status >= 500 && !serverErrorIsValid)) {
     throw new Error(`매트릭스 판정 불가(${status}): ${context} — 권한이 아니라 속도 제한·서버 오류다.`);
   }
   return 'allow';
@@ -243,7 +255,9 @@ describe('G-1 권한 매트릭스', () => {
         if (actor.authorization) req = req.set('Authorization', actor.authorization);
         if (endpoint.body) req = req.send(body);
         const res = await req;
-        generated[endpoint.id][actor.row] = verdict(res.status, `${endpoint.id} / ${actor.row}`);
+        generated[endpoint.id][actor.row] = verdict(
+          res.status, `${endpoint.id} / ${actor.row}`, endpoint.serverErrorIsValid,
+        );
       }
     }
 
