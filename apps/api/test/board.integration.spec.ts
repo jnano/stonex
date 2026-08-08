@@ -88,9 +88,9 @@ describe('게시판 코어 (WP-B1, 실 DB)', () => {
     const caps = new BoardCapabilitiesService(p);
     posts = new PostsService(
       p, audit, boards, attachments, new BoardTagsService(p, caps), new ViewCountService(p),
-      new PostPolicyService(p), caps, new BoardEventBus(p),
+      new PostPolicyService(p, new PrismaGrantStore(p)), caps, new BoardEventBus(p),
     );
-    comments = new CommentsService(p, audit, boards, new BoardEventBus(p), new PostPolicyService(p));
+    comments = new CommentsService(p, audit, boards, new BoardEventBus(p), new PostPolicyService(p, new PrismaGrantStore(p)));
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'board-test' } });
     for (const code of [...MEMBER_CODES, 'board.moderate', 'board.moderate.all', 'board.manage']) {

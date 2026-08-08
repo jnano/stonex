@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PrismaGrantStore } from '../authorization/grant.store';
 import { SubjectSnapshot } from '../authorization/types';
 
 export interface PostAccessTarget {
@@ -17,7 +18,10 @@ export interface PostAccessTarget {
  */
 @Injectable()
 export class PostPolicyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly grantStore: PrismaGrantStore,
+  ) {}
 
   /**
    * 비밀글 열람 판정 (§6.5 secret-post) — "숨김은 노출에 우선"(DENY 동형).
@@ -37,17 +41,12 @@ export class PostPolicyService {
       where: { post_id_user_id: { post_id: post.id, user_id: subject.id } },
     });
     if (reader) return true;
-    // 게시판 단위 운영 위임(board.moderate Grant)도 열람 가능 — 운영자가 못 보면 신고 처리 불가
-    const moderateGrant = await this.prisma.resourceGrant.findFirst({
-      where: {
-        subject_id: subject.id,
-        resource_type: 'board',
-        effect: 'ALLOW',
-        permission: { code: 'board.moderate' },
-        resource_id: (await this.boardIdOf(post.id)) ?? undefined,
-      },
-    });
-    return moderateGrant !== null;
+    // 게시판 단위 운영 위임(board.moderate Grant)도 열람 가능 — 운영자가 못 보면 신고 처리 불가.
+    // Grant 조회는 GrantStore 단일 통로(G-2 — resource_grants 직접 접근 금지)
+    const boardId = await this.boardIdOf(post.id);
+    if (!boardId) return false;
+    const moderateIds = await this.grantStore.findAllowedResourceIds(subject.id, 'board', 'board.moderate');
+    return moderateIds.includes(boardId);
   }
 
   /**
@@ -73,20 +72,14 @@ export class PostPolicyService {
     if (subject.permissions.has('board.moderate.all')) {
       return { bypassAll: true, readablePostIds: [], moderateBoardIds: [] };
     }
-    const [readers, grants] = await Promise.all([
+    const [readers, moderateBoardIds] = await Promise.all([
       this.prisma.postSecretReader.findMany({ where: { user_id: subject.id }, select: { post_id: true } }),
-      this.prisma.resourceGrant.findMany({
-        where: {
-          subject_id: subject.id, resource_type: 'board', effect: 'ALLOW',
-          permission: { code: 'board.moderate' },
-        },
-        select: { resource_id: true },
-      }),
+      this.grantStore.findAllowedResourceIds(subject.id, 'board', 'board.moderate'),
     ]);
     return {
       bypassAll: false,
       readablePostIds: readers.map((r) => r.post_id),
-      moderateBoardIds: grants.map((g) => g.resource_id),
+      moderateBoardIds,
     };
   }
 

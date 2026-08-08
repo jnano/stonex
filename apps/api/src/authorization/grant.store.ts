@@ -55,6 +55,31 @@ export class PrismaGrantStore implements GrantStore {
     return rows.map((r) => ({ resourceId: r.resource_id, effect: r.effect as 'ALLOW' | 'DENY' }));
   }
 
+  /**
+   * 주체가 특정 Permission 코드로 보유한 유효 ALLOW Grant 의 리소스 id 목록.
+   * 게시판 정책 훅(WP-B5 — 운영 위임 판정)이 사용하는 조회 전용 통로 —
+   * resource_grants 직접 접근 금지(G-2)를 풀지 않고 여기로 모은다.
+   */
+  async findAllowedResourceIds(
+    subjectId: string,
+    resourceType: string,
+    permissionCode: string,
+  ): Promise<string[]> {
+    const now = new Date();
+    const rows = await this.prisma.resourceGrant.findMany({
+      where: {
+        subject_type: 'USER',
+        subject_id: subjectId,
+        resource_type: resourceType,
+        effect: 'ALLOW',
+        permission: { code: permissionCode },
+        OR: [{ expires_at: null }, { expires_at: { gt: now } }],
+      },
+      select: { resource_id: true },
+    });
+    return rows.map((r) => r.resource_id);
+  }
+
   /** 특정 리소스에 걸린 Grant 전체 (공유 목록 화면용). 조회 전용 통로 */
   async findByResource(resourceType: string, resourceId: string) {
     return this.prisma.resourceGrant.findMany({

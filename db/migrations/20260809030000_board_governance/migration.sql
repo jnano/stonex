@@ -1,26 +1,7 @@
--- DropForeignKey
-ALTER TABLE "board_notifications" DROP CONSTRAINT "fk_bnotif_tenant";
-
--- DropForeignKey
-ALTER TABLE "board_notifications" DROP CONSTRAINT "fk_bnotif_user";
-
--- DropForeignKey
-ALTER TABLE "board_outbox_events" DROP CONSTRAINT "fk_boutbox_tenant";
-
--- DropForeignKey
-ALTER TABLE "board_reactions" DROP CONSTRAINT "fk_breact_post";
-
--- DropForeignKey
-ALTER TABLE "board_reactions" DROP CONSTRAINT "fk_breact_user";
-
--- DropForeignKey
-ALTER TABLE "board_tags" DROP CONSTRAINT "fk_btags_post";
-
--- DropIndex
-DROP INDEX "idx_posts_body_trgm";
-
--- DropIndex
-DROP INDEX "idx_posts_title_trgm";
+-- board 모듈 WP-B5 (재작성): migrate dev 가 수기 SQL(FK·trgm 인덱스)을 드리프트로
+-- 오인해 DROP 8건을 끼워 넣고, UTC 타임스탬프가 수동 타임스탬프(수기 FK)보다 앞서
+-- 정렬돼 CI 에서 P3018 로 실패했다. DROP 을 제거하고 순서를 수기 FK 뒤로 옮겨 재작성.
+-- (수기 SQL 관례가 있는 이 저장소에서 migrate dev 는 쓰지 않는다 — 수동 폴더 + deploy 만)
 
 -- AlterTable
 ALTER TABLE "board_members" ALTER COLUMN "joined_at" SET DEFAULT now();

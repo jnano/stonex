@@ -57,7 +57,7 @@ describe('게시판 검색·조회수 (WP-B4, 실 DB)', () => {
     const audit = new AuditService();
     const grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p));
     boards = new BoardsService(p, audit, new BoardPolicyService(p, new PrismaGrantStore(p)), grants);
-    search = new BoardSearchService(p, boards, new PostPolicyService(p));
+    search = new BoardSearchService(p, boards, new PostPolicyService(p, new PrismaGrantStore(p)));
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'search-test' } });
     userId = (await prisma.user.create({
