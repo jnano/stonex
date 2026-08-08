@@ -8,6 +8,7 @@ import {
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -105,6 +106,19 @@ export class StorageService {
     } catch {
       return null; // 오브젝트 부재
     }
+  }
+
+  /** 오브젝트 전체를 버퍼로 — 서버측 후처리(이미지 재인코딩 등) 전용. 응답 경로 사용 금지 */
+  async getObjectBuffer(storageKey: string): Promise<Buffer> {
+    const { client, bucket } = await this.resolve();
+    const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: storageKey }));
+    return Buffer.from(await res.Body!.transformToByteArray());
+  }
+
+  /** 후처리 결과를 같은 키에 재기록 — 원본 교체(EXIF 제거 등)에 쓴다 */
+  async putObjectBuffer(storageKey: string, body: Buffer, contentType: string): Promise<void> {
+    const { client, bucket } = await this.resolve();
+    await client.send(new PutObjectCommand({ Bucket: bucket, Key: storageKey, Body: body, ContentType: contentType }));
   }
 
   async deleteObject(storageKey: string): Promise<void> {

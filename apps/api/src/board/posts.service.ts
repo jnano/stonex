@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { SubjectSnapshot } from '../authorization/types';
 import { BoardsService } from './boards.service';
+import { AttachmentResult, BoardAttachmentService } from './board-attachment.service';
 import { renderBodyHtml } from './render';
 
 export interface PostSummary {
@@ -21,6 +22,7 @@ export interface PostDetail extends PostSummary {
   bodyHtml: string; // 표시는 언제나 렌더 캐시 — body_md 는 수정 화면에서만
   bodyMd: string;
   updatedAt: string;
+  attachments: AttachmentResult[];
 }
 
 const toSummary = (p: Post): PostSummary => ({
@@ -29,8 +31,9 @@ const toSummary = (p: Post): PostSummary => ({
   createdAt: p.created_at.toISOString(),
 });
 
-const toDetail = (p: Post): PostDetail => ({
+const toDetail = (p: Post, attachments: AttachmentResult[] = []): PostDetail => ({
   ...toSummary(p), bodyHtml: p.body_html, bodyMd: p.body_md, updatedAt: p.updated_at.toISOString(),
+  attachments,
 });
 
 /**
@@ -46,6 +49,7 @@ export class PostsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly boards: BoardsService,
+    private readonly attachments: BoardAttachmentService,
   ) {}
 
   /** 게시판 내 목록 — 고정글 우선, 최신순 (키셋 페이징 전환은 WP-B4) */
@@ -95,13 +99,13 @@ export class PostsService {
     if (post.status === 'DRAFT' && post.owner_id !== subject.id) throw new NotFoundException();
     if (post.status === 'HIDDEN' || post.status === 'DELETED') throw new NotFoundException();
     await this.boards.loadAccessible(subject, post.board_id); // 평면 2
-    return toDetail(post);
+    return toDetail(post, await this.attachments.listForPost(post.id));
   }
 
   async create(
     subject: SubjectSnapshot,
     boardId: string,
-    input: { title: string; bodyMd: string; draft?: boolean },
+    input: { title: string; bodyMd: string; draft?: boolean; attachmentFileIds?: string[] },
   ): Promise<PostDetail> {
     await this.boards.loadAccessible(subject, boardId, { write: true }); // ARCHIVED 는 쓰기 불가
     const post = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -116,6 +120,8 @@ export class PostsService {
           status: input.draft ? 'DRAFT' : 'PUBLISHED',
         },
       });
+      // 첨부 링크 — 본인 소유분 한정 검증 포함(R-B7), 글과 같은 트랜잭션
+      await this.attachments.linkToPost(tx, subject, created.id, input.attachmentFileIds ?? []);
       // 카운터는 같은 트랜잭션에서 증감(§4.1) — DRAFT 는 목록에 없으므로 세지 않는다
       if (!input.draft) {
         await tx.board.update({ where: { id: boardId }, data: { post_count: { increment: 1 } } });
@@ -127,14 +133,14 @@ export class PostsService {
       });
       return created;
     });
-    return toDetail(post);
+    return toDetail(post, await this.attachments.listForPost(post.id));
   }
 
   /** 수정 — owned 판정은 Guard(평가기)가 리소스 로드로 이미 통과시켰다 */
   async update(
     subject: SubjectSnapshot,
     postId: string,
-    input: { title?: string; bodyMd?: string; publish?: boolean },
+    input: { title?: string; bodyMd?: string; publish?: boolean; attachmentFileIds?: string[] },
   ): Promise<PostDetail> {
     const post = await this.prisma.post.findUnique({ where: { id: postId } });
     if (!post || post.deleted_at) throw new NotFoundException();
@@ -154,6 +160,9 @@ export class PostsService {
       if (publishing) {
         await tx.board.update({ where: { id: post.board_id }, data: { post_count: { increment: 1 } } });
       }
+      if (input.attachmentFileIds !== undefined) {
+        await this.attachments.linkToPost(tx, subject, postId, input.attachmentFileIds);
+      }
       await this.audit.record(tx, {
         tenantId: subject.tenantId, actorId: subject.id, action: 'post.update',
         targetType: 'post', targetId: postId,
@@ -161,7 +170,7 @@ export class PostsService {
       });
       return next;
     });
-    return toDetail(updated);
+    return toDetail(updated, await this.attachments.listForPost(postId));
   }
 
   async softDelete(subject: SubjectSnapshot, postId: string, viaAdmin = false): Promise<void> {

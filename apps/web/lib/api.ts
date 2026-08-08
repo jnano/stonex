@@ -320,10 +320,18 @@ export interface PostSummary {
   createdAt: string;
 }
 
+export interface Attachment {
+  fileId: string;
+  name: string;
+  sizeBytes: number;
+  mimeType: string;
+}
+
 export interface PostDetail extends PostSummary {
   bodyHtml: string;
   bodyMd: string;
   updatedAt: string;
+  attachments: Attachment[];
 }
 
 export interface CommentView {
@@ -388,6 +396,16 @@ export const endpoints = {
     api<{ items: PostSummary[]; total: number }>(`/boards/${boardId}/posts?page=${page}`),
   post: (id: string) => api<PostDetail>(`/posts/${id}`),
   postComments: (id: string) => api<CommentView[]>(`/posts/${id}/comments`),
+  createPost: (boardId: string, body: { title: string; bodyMd: string; attachmentFileIds?: string[] }) =>
+    api<PostDetail>(`/boards/${boardId}/posts`, { method: 'POST', body: JSON.stringify(body) }),
+  updatePost: (id: string, body: { title?: string; bodyMd?: string; attachmentFileIds?: string[] }) =>
+    api<PostDetail>(`/posts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  issueBoardUpload: (boardId: string, body: { contentType: string; contentLength: number }) =>
+    api<{ uploadId: string; uploadUrl: string; expiresAt: string }>(`/boards/${boardId}/uploads`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+  completeBoardUpload: (body: { uploadId: string; checksum: string; name: string }) =>
+    api<Attachment>('/boards/attachments/complete', { method: 'POST', body: JSON.stringify(body) }),
 
   files: (page = 1) => api<{ items: FileSummary[]; total: number }>(`/files?page=${page}`),
   file: (id: string) => api<FileSummary>(`/files/${id}`),
