@@ -5,7 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { ResourceGrantService } from '../authorization/resource-grant.service';
 import { SubjectSnapshot } from '../authorization/types';
 import { BoardPolicyService } from './board-policy.service';
-import { BOARD_TYPE_PRESETS } from './presets';
+import { BOARD_TYPE_PRESETS, BoardSettings, validateSettings } from './presets';
 import { CAPABILITY_KEYS } from './capabilities.service';
 
 export interface BoardSummary {
@@ -17,12 +17,21 @@ export interface BoardSummary {
   status: string;
   postCount: number;
   createdAt: string;
+  /**
+   * 게시판 설정·활성 기능모듈 — **화면이 표현을 정하는 근거**(§5).
+   *
+   * 이전에는 서버에만 있어 프리셋이 저장까지만 참이고 화면은 전부 같은 모습이었다.
+   * 표시 분기의 입력일 뿐 인가가 아니다(BINV-1) — 실제 차단은 서버가 한다.
+   */
+  settings: BoardSettings;
+  capabilities: string[];
 }
 
-const toSummary = (b: Board): BoardSummary => ({
+const toSummary = (b: Board, capabilities: string[] = []): BoardSummary => ({
   id: b.id, slug: b.slug, name: b.name, boardType: b.board_type,
   visibility: b.visibility, status: b.status, postCount: Number(b.post_count),
   createdAt: b.created_at.toISOString(),
+  settings: validateSettings(b.settings), capabilities,
 });
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
@@ -46,6 +55,28 @@ export class BoardsService {
     private readonly policy: BoardPolicyService,
     private readonly grants: ResourceGrantService,
   ) {}
+
+  /** 게시판별 활성 기능모듈 — 행이 없으면 기본 활성(§6) */
+  private async enabledCapabilities(boardIds: string[]): Promise<Map<string, string[]>> {
+    if (boardIds.length === 0) return new Map();
+    const rows = await this.prisma.boardCapability.findMany({
+      where: { board_id: { in: boardIds } },
+    });
+    const disabled = new Map<string, Set<string>>();
+    const explicit = new Map<string, Set<string>>();
+    for (const r of rows) {
+      const bucket = r.enabled ? explicit : disabled;
+      const set = bucket.get(r.board_id) ?? new Set<string>();
+      set.add(r.capability_key);
+      bucket.set(r.board_id, set);
+    }
+    return new Map(
+      boardIds.map((id) => [
+        id,
+        CAPABILITY_KEYS.filter((key) => !(disabled.get(id)?.has(key) ?? false)),
+      ]),
+    );
+  }
 
   /** 접근 가능한 게시판만 (BINV-3 — canAccessBoard 의 쿼리 등가) */
   async listVisible(subject: SubjectSnapshot, page = 1, size = 20): Promise<{ items: BoardSummary[]; total: number }> {
@@ -72,13 +103,15 @@ export class BoardsService {
       this.prisma.board.findMany({ where, orderBy: { created_at: 'asc' }, skip, take }),
       this.prisma.board.count({ where }),
     ]);
-    return { items: rows.map(toSummary), total };
+    const caps = await this.enabledCapabilities(rows.map((r) => r.id));
+    return { items: rows.map((r) => toSummary(r, caps.get(r.id) ?? [])), total };
   }
 
   /** 단건 조회 — 비가시는 404 은닉(§10.2) */
   async detail(subject: SubjectSnapshot, boardId: string): Promise<BoardSummary> {
     const board = await this.loadAccessible(subject, boardId);
-    return toSummary(board);
+    const caps = await this.enabledCapabilities([board.id]);
+    return toSummary(board, caps.get(board.id) ?? []);
   }
 
   /** 접근 판정 포함 로드 — 게시글·댓글 서비스가 2단 게이트의 정책 절반으로 재사용 */

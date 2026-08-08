@@ -40,7 +40,9 @@ export const BOARD_TYPE_PRESETS: Record<string, BoardTypePreset> = {
   QNA: {
     settings: { ...BASE },
     // 비밀 질문(secret-post)은 QNA 의 흔한 요구 — 접근개입 모듈도 프리셋 조합의 일부다(§6.5)
-    capabilitiesDefault: ['tag', 'reaction', 'attachment', 'notification', 'secret-post', 'mention'],
+    capabilitiesDefault: [
+      'tag', 'reaction', 'attachment', 'notification', 'secret-post', 'mention', 'accepted-answer',
+    ],
   },
   GALLERY: {
     settings: { ...BASE, list_layout: 'GALLERY' },

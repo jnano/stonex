@@ -4,6 +4,7 @@ import { SubjectSnapshot } from '../authorization/types';
 import { BoardEvent, BoardEventConsumer } from './event-bus';
 import { BoardPolicyService } from './board-policy.service';
 import { PostPolicyService } from './post-policy.service';
+import { BoardCapabilitiesService } from './capabilities.service';
 
 export interface NotificationView {
   id: string;
@@ -28,12 +29,13 @@ const FANOUT_LIMIT = 100;
  */
 @Injectable()
 export class BoardNotificationService implements BoardEventConsumer {
-  readonly topics = ['comment.created', 'reaction.added', 'mention.created'];
+  readonly topics = ['comment.created', 'reaction.added', 'mention.created', 'answer.accepted'];
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly boardPolicy: BoardPolicyService,
     private readonly postPolicy: PostPolicyService,
+    private readonly capabilities: BoardCapabilitiesService,
   ) {}
 
   async consume(event: BoardEvent): Promise<void> {
@@ -68,9 +70,12 @@ export class BoardNotificationService implements BoardEventConsumer {
     if (!post || post.deleted_at) return [];
     const board = await this.prisma.board.findUnique({ where: { id: post.board_id } });
     if (!board || board.deleted_at) return [];
+    // 알림 기능이 꺼진 게시판이면 아무에게도 보내지 않는다 — 이벤트는 이미 커밋됐지만
+    // 소비 단계에서 멈춘다(발행 지점마다 검사하면 같은 판단이 여러 곳에 흩어진다)
+    if (!(await this.capabilities.isEnabled(board.id, 'notification'))) return [];
 
     const candidates =
-      event.topic === 'mention.created'
+      event.topic === 'mention.created' || event.topic === 'answer.accepted'
         ? ((event.payload.mentionedUserIds as string[] | undefined) ?? [])
         : post.owner_id === actorId
           ? []

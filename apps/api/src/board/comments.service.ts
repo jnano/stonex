@@ -7,7 +7,7 @@ import { BoardsService } from './boards.service';
 import { BoardEventBus } from './event-bus';
 import { PostPolicyService } from './post-policy.service';
 import { validateSettings } from './presets';
-import { CommentReactionsService } from './capabilities.service';
+import { BoardCapabilitiesService, CommentReactionsService } from './capabilities.service';
 import { COMMENT_TOMBSTONE, extractMentions, renderBodyHtml } from './render';
 
 export interface CommentReactionView {
@@ -62,6 +62,7 @@ export class CommentsService {
     private readonly bus: BoardEventBus,
     private readonly policy: PostPolicyService,
     private readonly reactions: CommentReactionsService,
+    private readonly capabilities: BoardCapabilitiesService,
   ) {}
 
   /** 게시글의 댓글 전체 — path 사전순 = 트리 전위순회(§9). 페이징은 WP-B3 */
@@ -161,7 +162,10 @@ export class CommentsService {
       });
       await tx.post.update({ where: { id: post.id }, data: { comment_count: { increment: 1 } } });
       // 부수효과(작성자 알림)는 비동기 레인 — 본 트랜잭션과 함께 커밋(§6.2)
-      const mentioned = await extractMentions(tx, subject.tenantId, input.bodyMd);
+      // 멘션은 기능모듈이다 — 꺼진 게시판에서는 이벤트를 만들지 않는다
+      const mentioned = (await this.capabilities.isEnabled(post.board_id, 'mention'))
+        ? await extractMentions(tx, subject.tenantId, input.bodyMd)
+        : [];
       await this.bus.publish(tx, {
         tenantId: subject.tenantId,
         topic: 'comment.created',

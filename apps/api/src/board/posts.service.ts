@@ -27,6 +27,8 @@ export interface PostSummary {
   status: string;
   isSecret: boolean;
   createdAt: string;
+  /** 채택된 답변 댓글 id — null 이면 미해결(§B9). QNA 가 아니어도 필드는 존재한다 */
+  acceptedCommentId: string | null;
 }
 
 export interface PostDetail extends PostSummary {
@@ -41,6 +43,7 @@ const toSummary = (p: Post, ownerName = ''): PostSummary => ({
   id: p.id, boardId: p.board_id, ownerId: p.owner_id, ownerName, title: p.title,
   isPinned: p.is_pinned, commentCount: Number(p.comment_count), viewCount: Number(p.view_count),
   status: p.status, isSecret: p.is_secret, createdAt: p.created_at.toISOString(),
+  acceptedCommentId: p.accepted_comment_id,
 });
 
 const toDetail = (
@@ -100,10 +103,12 @@ export class PostsService {
   async list(
     subject: SubjectSnapshot,
     boardId: string,
-    options: { cursor?: string; size?: number } = {},
+    options: { cursor?: string; size?: number; unansweredOnly?: boolean } = {},
   ): Promise<{ items: PostSummary[]; nextCursor: string | null }> {
-    await this.boards.loadAccessible(subject, boardId); // 평면 2 — 비가시 게시판은 여기서 404
-    const take = Math.min(Math.max(options.size ?? 20, 1), 100);
+    const board = await this.boards.loadAccessible(subject, boardId); // 평면 2 — 비가시는 404
+    // 페이지 크기 기본값은 **게시판 설정**이다(§5 paging.size) — 요청이 명시하면 그것을 쓴다
+    const defaultSize = validateSettings(board.settings).paging.size;
+    const take = Math.min(Math.max(options.size ?? defaultSize, 1), 100);
     const after = options.cursor ? decodeCursor(options.cursor) : null;
 
     const base: Prisma.PostWhereInput = {
@@ -118,7 +123,10 @@ export class PostsService {
     // 첫 페이지: 고정글 전부 + 일반 첫 배치. 이후 페이지: 커서 이후 일반 글만
     // 비밀글 스코프(BINV-3 — canReadPost 의 쿼리 등가) + 차단 표시 필터(보안 경계 아님 §6.5)
     const secret = await this.policy.secretScope(subject);
-    const blocked = await this.policy.blockedIds(subject.id);
+    // 차단 표시 필터는 기능모듈이다 — 꺼진 게시판에서는 적용하지 않는다
+    const blocked = (await this.capabilities.isEnabled(boardId, 'user-block'))
+      ? await this.policy.blockedIds(subject.id)
+      : [];
     const secretFilter: Prisma.PostWhereInput = secret.bypassAll
       ? {}
       : {
@@ -150,6 +158,7 @@ export class PostsService {
               OR p.id = ANY(${secret.readablePostIds}::uuid[])
               OR p.board_id = ANY(${secret.moderateBoardIds}::uuid[]))
          AND NOT (p.owner_id = ANY(${blocked}::uuid[]))
+         AND (NOT ${options.unansweredOnly === true}::boolean OR p.accepted_comment_id IS NULL)
          AND (${after}::uuid IS NULL OR (p.created_at, p.id) <
               (SELECT c.created_at, c.id FROM posts c WHERE c.id = ${after}::uuid))
        ORDER BY p.created_at DESC, p.id DESC
@@ -197,7 +206,8 @@ export class PostsService {
     await this.boards.loadAccessible(subject, post.board_id); // 평면 2
     // 비밀글(§6.5): 숨김은 노출에 우선 — 판정 실패는 403 이 아니라 404(존재 은닉)
     if (!(await this.policy.canReadPost(subject, post))) throw new NotFoundException();
-    this.views.bump(post.id); // 조회수 — 요청 경로 I/O 없음(버퍼, WP-B4)
+    // 조회수는 기능모듈이다 — 꺼진 게시판에서는 세지 않는다(요청 경로 I/O 는 어차피 없다)
+    if (await this.capabilities.isEnabled(post.board_id, 'view-count')) this.views.bump(post.id);
     const names = await this.ownerNames([post.owner_id]);
     return toDetail(
       post, await this.attachments.listForPost(post.id), await this.tags.listForPost(post.id),
@@ -244,15 +254,19 @@ export class PostsService {
         });
       }
       // 멘션(§6.5): 대상 목록만 이벤트에 싣는다 — 수신 여부는 소비 시점에 접근 재판정
-      const mentioned = await extractMentions(tx, subject.tenantId, input.bodyMd);
+      const mentioned = (await this.capabilities.isEnabled(boardId, 'mention'))
+        ? await extractMentions(tx, subject.tenantId, input.bodyMd)
+        : [];
       if (!input.draft && mentioned.length > 0) {
         await this.bus.publish(tx, {
           tenantId: subject.tenantId, topic: 'mention.created',
           payload: { postId: created.id, boardId, actorId: subject.id, mentionedUserIds: mentioned },
         });
       }
-      // 첨부 링크 — 본인 소유분 한정 검증 포함(R-B7), 글과 같은 트랜잭션
-      await this.attachments.linkToPost(tx, subject, created.id, input.attachmentFileIds ?? []);
+      // 첨부 링크 — 본인 소유분 한정 검증 포함(R-B7), 상한은 게시판 설정을 따른다
+      await this.attachments.linkToPost(
+        tx, subject, created.id, input.attachmentFileIds ?? [], settings.editor.max_attachments,
+      );
       if (input.tags !== undefined) await this.tags.replaceForPost(tx, boardId, created.id, input.tags);
       // 카운터는 같은 트랜잭션에서 증감(§4.1) — DRAFT 는 목록에 없으므로 세지 않는다
       if (!input.draft) {
@@ -324,6 +338,7 @@ export class PostsService {
   async setCoAuthors(subject: SubjectSnapshot, postId: string, userIds: string[]): Promise<void> {
     const post = await this.prisma.post.findUnique({ where: { id: postId } });
     if (!post || post.deleted_at) throw new NotFoundException();
+    await this.capabilities.assertEnabled(post.board_id, 'co-author');
     if (post.owner_id !== subject.id) throw new NotFoundException(); // 원작성자 한정 — 은닉
     const unique = [...new Set(userIds)].filter((id) => id !== post.owner_id).slice(0, 10);
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -424,6 +439,64 @@ export class PostsService {
     });
     const names = await this.ownerNames([updated.owner_id]);
     return toSummary(updated, names.get(updated.owner_id) ?? '');
+  }
+
+  /**
+   * 답변 채택 (WP-B9, `accepted-answer` 기능모듈 — §5.2 QNA).
+   *
+   * **질문 작성자만** 채택한다 — 운영자도 대신 정하지 않는다(질문의 해결 여부는
+   * 질문자가 판단할 일이다). 채택은 질문당 1개이며, 같은 댓글을 다시 채택하면 해제된다
+   * (별도 "채택 취소" 라우트를 두는 대신 토글 — 재채택이 자연스럽다).
+   *
+   * 채택 사실은 답변자에게 알린다 — 발행은 outbox 비동기 레인(§6.2)이고, 수신 여부는
+   * 소비 시점의 접근 재판정이 정한다(§6.5).
+   */
+  async acceptAnswer(
+    subject: SubjectSnapshot,
+    postId: string,
+    commentId: string,
+  ): Promise<PostDetail> {
+    const post = await this.prisma.post.findUnique({ where: { id: postId } });
+    if (!post || post.deleted_at) throw new NotFoundException();
+    await this.capabilities.assertEnabled(post.board_id, 'accepted-answer');
+    // 질문 작성자 한정 — 은닉(403 은 "채택 가능한 글이 있다"를 알려준다)
+    if (post.owner_id !== subject.id) throw new NotFoundException();
+
+    const comment = await this.prisma.comment.findUnique({ where: { id: commentId } });
+    if (!comment || comment.deleted_at || comment.post_id !== postId) throw new NotFoundException();
+    if (comment.owner_id === subject.id) {
+      throw new ForbiddenException('자기 답변은 채택할 수 없습니다.');
+    }
+
+    const next = post.accepted_comment_id === commentId ? null : commentId;
+    const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const row = await tx.post.update({
+        where: { id: postId },
+        data: { accepted_comment_id: next },
+      });
+      if (next) {
+        await this.bus.publish(tx, {
+          tenantId: subject.tenantId,
+          topic: 'answer.accepted',
+          payload: {
+            postId, boardId: post.board_id, actorId: subject.id,
+            mentionedUserIds: [comment.owner_id], // 답변자에게만
+          },
+        });
+      }
+      await this.audit.record(tx, {
+        tenantId: subject.tenantId, actorId: subject.id,
+        action: next ? 'post.answer.accept' : 'post.answer.unaccept',
+        targetType: 'post', targetId: postId,
+        detail: { before: { accepted: post.accepted_comment_id }, after: { accepted: next } },
+      });
+      return row;
+    });
+    const names = await this.ownerNames([updated.owner_id]);
+    return toDetail(
+      updated, await this.attachments.listForPost(postId), await this.tags.listForPost(postId),
+      names.get(updated.owner_id) ?? '',
+    );
   }
 
   /** 운영자가 볼 수 있는 숨김 글 상세 — 일반 상세는 HIDDEN 을 404 로 가린다 */

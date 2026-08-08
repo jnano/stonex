@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@stonex/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -6,6 +6,8 @@ import { StorageService } from '../storage/storage.service';
 import { UploadSessionService, UploadTicket } from '../storage/upload-session.service';
 import { SubjectSnapshot } from '../authorization/types';
 import { BoardsService } from './boards.service';
+import { BoardCapabilitiesService } from './capabilities.service';
+import { validateSettings } from './presets';
 import { isImageMime, reencodeImage } from './image-guard';
 
 export interface AttachmentResult {
@@ -18,8 +20,8 @@ export interface AttachmentResult {
   url?: string;
 }
 
-/** 글당 첨부 상한 — 무제한이면 첨부가 저장 공간 공격 벡터가 된다 */
-const MAX_ATTACHMENTS = 10;
+/** 글당 첨부 상한의 안전 상한 — 게시판 설정(editor.max_attachments)이 이보다 크면 여기서 자른다 */
+const ATTACHMENT_HARD_CAP = 50;
 
 /**
  * 게시판 첨부 (WP-B2, 스펙 §7.2 — 코어 file 모듈 재사용).
@@ -39,6 +41,7 @@ export class BoardAttachmentService {
     private readonly storage: StorageService,
     private readonly uploads: UploadSessionService,
     private readonly boards: BoardsService,
+    private readonly capabilities: BoardCapabilitiesService,
   ) {}
 
   /** 업로드 세션 발급 — 쓰기 가능한 게시판에서만(canAccessBoard write) */
@@ -47,7 +50,11 @@ export class BoardAttachmentService {
     boardId: string,
     input: { contentType: string; contentLength: number },
   ): Promise<UploadTicket> {
-    await this.boards.loadAccessible(subject, boardId, { write: true });
+    const board = await this.boards.loadAccessible(subject, boardId, { write: true });
+    // 첨부 기능이 꺼진 게시판에서는 업로드 세션 자체를 내주지 않는다 — 화면이 감추는
+    // 것만으로는 부족하다(주소를 직접 치면 열린다, §3·§8.4)
+    await this.capabilities.assertEnabled(boardId, 'attachment');
+    if (!validateSettings(board.settings).editor.attachments) throw new NotFoundException();
     return this.uploads.issue({
       tenantId: subject.tenantId,
       requesterId: subject.id,
@@ -112,11 +119,13 @@ export class BoardAttachmentService {
     subject: SubjectSnapshot,
     postId: string,
     fileIds: string[],
+    limit = ATTACHMENT_HARD_CAP,
   ): Promise<void> {
     const unique = [...new Set(fileIds)];
     if (unique.length === 0) return;
-    if (unique.length > MAX_ATTACHMENTS) {
-      throw new BadRequestException(`첨부는 글당 ${MAX_ATTACHMENTS}개까지입니다.`);
+    const cap = Math.min(limit, ATTACHMENT_HARD_CAP);
+    if (unique.length > cap) {
+      throw new BadRequestException(`첨부는 글당 ${cap}개까지입니다.`);
     }
     const owned = await tx.file.findMany({
       where: { id: { in: unique }, owner_id: subject.id, tenant_id: subject.tenantId, deleted_at: null },

@@ -312,6 +312,14 @@ export interface TestResult {
 
 
 // ── board 모듈 기여 시작 (D-2, WP-B1) ──
+export interface BoardSettings {
+  list_layout: 'LIST' | 'GALLERY' | 'CARD';
+  write_policy: 'MEMBER' | 'MODERATOR';
+  comment: { enabled: boolean; max_depth: number };
+  editor: { markdown: boolean; attachments: boolean; max_attachments: number };
+  paging: { size: number; mode: 'KEYSET' };
+}
+
 export interface BoardSummary {
   id: string;
   slug: string;
@@ -321,6 +329,9 @@ export interface BoardSummary {
   status: string;
   postCount: number;
   createdAt: string;
+  /** 화면이 표현을 정하는 근거(§5) — 표시 분기의 입력일 뿐 인가가 아니다 */
+  settings: BoardSettings;
+  capabilities: string[];
 }
 
 export interface PostSummary {
@@ -335,6 +346,8 @@ export interface PostSummary {
   isSecret: boolean;
   createdAt: string;
   ownerName: string;
+  /** 채택된 답변 댓글 id — null 이면 미해결(§B9) */
+  acceptedCommentId: string | null;
 }
 
 export interface ReportView {
@@ -433,10 +446,15 @@ export const endpoints = {
   // ── board 모듈 기여 (D-2, WP-B1) ──
   boards: (page = 1) => api<{ items: BoardSummary[]; total: number }>(`/boards?page=${page}`),
   board: (id: string) => api<BoardSummary>(`/boards/${id}`),
-  boardPosts: (boardId: string, cursor?: string) =>
-    api<{ items: PostSummary[]; nextCursor: string | null }>(
-      `/boards/${boardId}/posts${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
-    ),
+  boardPosts: (boardId: string, options: { cursor?: string; unansweredOnly?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (options.cursor) q.set('cursor', options.cursor);
+    if (options.unansweredOnly) q.set('unanswered', '1');
+    const qs = q.toString();
+    return api<{ items: PostSummary[]; nextCursor: string | null }>(
+      `/boards/${boardId}/posts${qs ? `?${qs}` : ''}`,
+    );
+  },
   post: (id: string) => api<PostDetail>(`/posts/${id}`),
   searchPosts: (boardId: string, q: string) =>
     api<PostSummary[]>(`/boards/${boardId}/search?q=${encodeURIComponent(q)}`),
@@ -479,6 +497,8 @@ export const endpoints = {
       method: 'POST', body: JSON.stringify({ uphold }),
     }),
   boardPatrol: () => api<BriResult[]>('/admin/board/patrol'),
+  acceptAnswer: (postId: string, commentId: string) =>
+    api<PostDetail>(`/posts/${postId}/accept`, { method: 'POST', body: JSON.stringify({ commentId }) }),
   deletePost: (id: string) => api<{ ok: true }>(`/posts/${id}`, { method: 'DELETE' }),
   updateComment: (id: string, bodyMd: string) =>
     api<CommentView>(`/comments/${id}`, { method: 'PATCH', body: JSON.stringify({ bodyMd }) }),

@@ -71,6 +71,10 @@ class ReportDto {
   @IsString() @Length(1, 300) reason!: string;
 }
 
+class AcceptAnswerDto {
+  @IsUUID() commentId!: string;
+}
+
 class ModerateDto {
   @IsOptional() @IsBoolean() pin?: boolean;
   @IsOptional() @IsBoolean() hide?: boolean;
@@ -213,8 +217,14 @@ export class BoardsController {
     @Param('id') id: string,
     @Query('cursor') cursor?: string,
     @Query('size') size?: string,
+    @Query('unanswered') unanswered?: string,
   ): Promise<{ items: PostSummary[]; nextCursor: string | null }> {
-    return this.posts.list(subjectOf(req), id, { cursor, size: Number(size ?? 20) });
+    return this.posts.list(subjectOf(req), id, {
+      cursor,
+      // size 미지정이면 게시판 설정(paging.size)을 따른다 — 여기서 기본값을 박지 않는다
+      size: size ? Number(size) : undefined,
+      unansweredOnly: unanswered === '1',
+    });
   }
 
   /** 드래그앤드랍 첨부 세션 (§7.2) — 쓰기 가능한 게시판에서만. 응답에 storage_key 없음 */
@@ -298,6 +308,21 @@ export class PostsController {
     @Body() body: ModerateDto,
   ): Promise<PostSummary> {
     return this.posts.moderate(subjectOf(req), id, body);
+  }
+
+  /**
+   * 답변 채택 (§5.2 QNA) — **질문 작성자만**. 같은 댓글을 다시 보내면 채택 해제(토글).
+   * 게이트는 인증형 + 정책(질문 작성자 판정은 서비스가 한다 — owned Guard 로는
+   * "이 글의 작성자인가"를 표현할 수 있으나 채택 대상 댓글 검증이 함께 필요하다).
+   */
+  @AuthenticatedOnly()
+  @HttpPost(':id/accept')
+  async acceptAnswer(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: AcceptAnswerDto,
+  ): Promise<PostDetail> {
+    return this.posts.acceptAnswer(subjectOf(req), id, body.commentId);
   }
 
   /** 공동작성자 지정 (§6.5) — 원작성자만. owner_id 는 불변(R-B12) */

@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { endpoints, errorText, type CommentView, type PostDetail } from '../../../../lib/api';
+import {
+  endpoints, errorText, type BoardSummary, type CommentView, type PostDetail,
+} from '../../../../lib/api';
 import { useSession } from '../../../../lib/session';
 import { Banner, Card, Empty, Shell, s } from '../../../../lib/ui';
 
-/** 표시 깊이 상한 (§9.2) — 저장은 무제한, 표시만 접는다(R-B3 렌더 폭발 방지) */
-const MAX_DISPLAY_DEPTH = 3;
+/** 표시 깊이 상한의 안전값 — 게시판 설정(comment.max_depth)이 0(무제한)일 때 쓴다.
+ *  무제한 저장은 유지하되 렌더는 접는다(R-B3 렌더 폭발 방지) */
+const FALLBACK_DEPTH = 3;
 
 /** 반응 종류 — 이모지는 저장 값, label 은 표시·풍선 도움말(title) 전용 */
 const REACTIONS: Array<{ kind: string; label: string }> = [
@@ -33,6 +36,7 @@ export default function PostPage() {
   const params = useParams<{ id: string; postId: string }>();
   const router = useRouter();
   const { me, can } = useSession();
+  const [board, setBoard] = useState<BoardSummary | null>(null);
   const [post, setPost] = useState<PostDetail | null>(null);
   const [comments, setComments] = useState<CommentView[]>([]);
   const [reactions, setReactions] = useState<Array<{ kind: string; count: number; mine: boolean }>>([]);
@@ -56,11 +60,20 @@ export default function PostPage() {
     setPost(p);
     setComments(c);
     setReactions(r);
+    // 게시판 설정·기능모듈을 함께 받아 **표현**을 정한다(§5) — 차단은 서버 몫이다
+    setBoard(await endpoints.board(p.boardId));
   }, [params?.postId]);
 
   useEffect(() => {
     void load().catch((e) => setError(errorText(e, '게시글을 불러오지 못했습니다.')));
   }, [load]);
+
+  const has = (key: string): boolean => board?.capabilities.includes(key) ?? true;
+  // 0 = 무제한 저장 — 렌더만 안전값으로 접는다
+  const maxDepth = board?.settings.comment.max_depth
+    ? Math.min(board.settings.comment.max_depth, 10)
+    : FALLBACK_DEPTH;
+  const commentsEnabled = board?.settings.comment.enabled ?? true;
 
   const byId = useMemo(() => new Map(comments.map((c) => [c.id, c])), [comments]);
   const isDescendantOf = useCallback(
@@ -77,10 +90,10 @@ export default function PostPage() {
     [byId],
   );
   const visible = comments.filter(
-    (c) => c.depth < MAX_DISPLAY_DEPTH || [...expanded].some((id) => isDescendantOf(c, id)),
+    (c) => c.depth < maxDepth || [...expanded].some((id) => isDescendantOf(c, id)),
   );
   const hiddenChildren = (parent: CommentView): number =>
-    comments.filter((c) => c.depth >= MAX_DISPLAY_DEPTH && isDescendantOf(c, parent.id)).length;
+    comments.filter((c) => c.depth >= maxDepth && isDescendantOf(c, parent.id)).length;
 
   /** 서버 호출 공통 — 성공하면 다시 읽어 화면을 서버 상태에 맞춘다 */
   const run = (fn: () => Promise<unknown>, done?: string) => {
@@ -120,6 +133,13 @@ export default function PostPage() {
     );
   };
 
+  /** 답변 채택 (§5.2 QNA) — 질문 작성자만, 같은 답변을 다시 누르면 해제 */
+  const accept = (commentId: string) => {
+    if (!params?.postId) return;
+    const id = params.postId;
+    run(() => endpoints.acceptAnswer(id, commentId), '처리했습니다.');
+  };
+
   const report = () => {
     const reason = window.prompt('신고 사유를 입력하세요 (300자 이내)');
     if (!reason?.trim() || !params?.postId) return;
@@ -156,6 +176,7 @@ export default function PostPage() {
               {post.updatedAt !== post.createdAt && ' (수정됨)'}
               {' · 조회 '}
               {post.viewCount}
+              {has('accepted-answer') && (post.acceptedCommentId ? ' · ✅ 해결됨' : ' · 미해결')}
               {post.isPinned && ' · 📌 고정'}
               {post.status === 'HIDDEN' && ' · 숨김'}
               {post.tags.length > 0 && ` · ${post.tags.map((t) => `#${t}`).join(' ')}`}
@@ -211,10 +232,12 @@ export default function PostPage() {
           )}
 
           <div style={{ ...s.row, marginTop: 14 }}>
-            <button onClick={report} title="이 글 신고" style={{ ...s.button, fontSize: 12 }}>
-              🚩 신고
-            </button>
-            {REACTIONS.map(({ kind, label }) => {
+            {has('report') && (
+              <button onClick={report} title="이 글 신고" style={{ ...s.button, fontSize: 12 }}>
+                🚩 신고
+              </button>
+            )}
+            {has('reaction') && REACTIONS.map(({ kind, label }) => {
               const entry = reactions.find((r) => r.kind === kind);
               const pressed = entry?.mine === true;
               return (
@@ -247,9 +270,13 @@ export default function PostPage() {
             <div
               key={c.id}
               style={{
-                marginLeft: Math.min(c.depth, MAX_DISPLAY_DEPTH) * 20,
-                padding: '8px 0',
+                marginLeft: Math.min(c.depth, maxDepth) * 20,
+                padding: post?.acceptedCommentId === c.id ? '8px 10px' : '8px 0',
                 borderBottom: '1px solid #f1f5f9',
+                // 채택된 답변은 눈에 띄게 — 질문을 연 사람이 정답을 먼저 본다
+                ...(post?.acceptedCommentId === c.id
+                  ? { background: '#ecfdf5', borderLeft: '3px solid #047857', borderRadius: 4 }
+                  : {}),
               }}
             >
               <div style={{ ...s.muted, fontSize: 11 }}>
@@ -281,7 +308,7 @@ export default function PostPage() {
               <div style={s.row}>
                 {c.status !== 'DELETED' && (
                   <>
-                    <button
+                    {commentsEnabled && <button
                       onClick={() => {
                         setReplyTo(replyTo === c.id ? null : c.id);
                         setReplyDraft('');
@@ -289,8 +316,8 @@ export default function PostPage() {
                       style={linkButton('#2563eb')}
                     >
                       {replyTo === c.id ? '답글 취소' : '답글'}
-                    </button>
-                    {REACTIONS.map(({ kind, label }) => {
+                    </button>}
+                    {has('reaction') && REACTIONS.map(({ kind, label }) => {
                       const entry = c.reactions.find((r) => r.kind === kind);
                       const pressed = entry?.mine === true;
                       return (
@@ -307,6 +334,18 @@ export default function PostPage() {
                       );
                     })}
                   </>
+                )}
+                {/* 답변 채택 — accepted-answer 가 켜진 게시판에서 질문 작성자에게만 보인다.
+                    자기 답변은 채택할 수 없다(서버도 403 으로 막는다) */}
+                {has('accepted-answer') && mine && c.status !== 'DELETED' && c.ownerId !== me?.id && (
+                  <button
+                    onClick={() => accept(c.id)}
+                    disabled={busy}
+                    title={post?.acceptedCommentId === c.id ? '채택 해제' : '이 답변을 채택'}
+                    style={linkButton(post?.acceptedCommentId === c.id ? '#047857' : '#64748b')}
+                  >
+                    {post?.acceptedCommentId === c.id ? '✅ 채택된 답변 (해제)' : '답변 채택'}
+                  </button>
                 )}
                 {isMine && !isEditing && (
                   <>
@@ -329,7 +368,7 @@ export default function PostPage() {
                   </>
                 )}
                 {/* 펼침/접기 토글(B6) — 펼친 뒤 다시 접을 수 있다 */}
-                {c.depth === MAX_DISPLAY_DEPTH - 1 && hiddenChildren(c) > 0 && (
+                {c.depth === maxDepth - 1 && hiddenChildren(c) > 0 && (
                   <button
                     onClick={() => setExpanded((prev) => {
                       const next = new Set(prev);
@@ -351,8 +390,7 @@ export default function PostPage() {
                   style={{
                     display: 'grid', gap: 6,
                     marginTop: 8,
-                    marginLeft: Math.min(c.depth + 1, MAX_DISPLAY_DEPTH) * 20
-                      - Math.min(c.depth, MAX_DISPLAY_DEPTH) * 20,
+                    marginLeft: Math.min(c.depth + 1, maxDepth) * 20 - Math.min(c.depth, maxDepth) * 20,
                     paddingLeft: 10,
                     borderLeft: '2px solid #dbeafe',
                   }}
@@ -384,8 +422,12 @@ export default function PostPage() {
           );
         })}
 
-        {/* 하단 폼은 **최상위 댓글 전용** — 답글은 위의 인라인 폼이 맡는다 */}
-        <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+        {/* 하단 폼은 **최상위 댓글 전용** — 답글은 위의 인라인 폼이 맡는다.
+            댓글이 꺼진 게시판(FAQ 프리셋)에서는 폼 자체를 두지 않는다 */}
+        {!commentsEnabled && (
+          <p style={{ ...s.muted, fontSize: 13, marginTop: 12 }}>이 게시판은 댓글을 받지 않습니다.</p>
+        )}
+        <div style={{ display: commentsEnabled ? 'grid' : 'none', gap: 8, marginTop: 12 }}>
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
