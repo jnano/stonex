@@ -8,6 +8,7 @@
  *  - 회원 삭제 후 그 회원 소유 파일에 대한 기존 공유 접근 차단 (WT-17)
  *  - 다른 테넌트 리소스 id 접근 시 404
  */
+import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { config } from 'dotenv';
@@ -81,11 +82,11 @@ describe('WP-10 파일 기본 기능 (실 DB)', () => {
     prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: TEST_URL }) });
     p = prisma as unknown as PrismaService;
     const audit = new AuditService();
-    grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit));
+    grants = new ResourceGrantService(audit, new GovernanceFreezeService(p, audit), testRegistry(p));
     const storage = new StorageService(new SettingsService(p, new AuditService()));
-    files = new FilesService(p, audit, grants, storage, new UploadSessionService(p, storage), new PrismaGrantStore(p));
-    authz = new AuthorizationService(new PrismaGrantStore(p));
-    loader = new ResourceLoaderRegistry(p);
+    files = new FilesService(testRegistry(p), p, audit, grants, storage, new UploadSessionService(p, storage), new PrismaGrantStore(p));
+    authz = new AuthorizationService(new PrismaGrantStore(p), testRegistry(p));
+    loader = new ResourceLoaderRegistry(testRegistry(p));
 
     for (const t of [TENANT, OTHER_TENANT]) {
       await prisma.tenant.upsert({ where: { id: t }, update: {}, create: { id: t, name: `t-${uid()}` } });
@@ -152,7 +153,7 @@ describe('WP-10 파일 기본 기능 (실 DB)', () => {
       record: async () => { throw new Error('감사 기록 실패 주입'); },
     } as unknown as AuditService;
     const brokenFiles = new FilesService(
-      p, brokenAudit, new ResourceGrantService(brokenAudit, new GovernanceFreezeService(p, brokenAudit)),
+      testRegistry(p), p, brokenAudit, new ResourceGrantService(brokenAudit, new GovernanceFreezeService(p, brokenAudit), testRegistry(p)),
       new StorageService(new SettingsService(p, new AuditService())), new UploadSessionService(p, new StorageService(new SettingsService(p, new AuditService()))), new PrismaGrantStore(p),
     );
     await expect(brokenFiles.softDelete(snapshot(ownerId), file.id)).rejects.toThrow();

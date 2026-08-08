@@ -6,13 +6,14 @@ import { ResourceGrantService } from '../authorization/resource-grant.service';
 import { StorageService } from '../storage/storage.service';
 import { UploadSessionService } from '../storage/upload-session.service';
 import { PrismaGrantStore } from '../authorization/grant.store';
-import { statusesAllowing } from '../authorization/authorization.service';
+import { ResourceTypeRegistry } from '../authorization/resource-registry';
 import { SubjectSnapshot } from '../authorization/types';
 import { FileSummary, toFileSummary } from './file.serializer';
 
 @Injectable()
 export class FilesService {
   constructor(
+    private readonly registry: ResourceTypeRegistry,
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly grants: ResourceGrantService,
@@ -93,7 +94,7 @@ export class FilesService {
     const where: Prisma.FileWhereInput = {
       tenant_id: subject.tenantId,
       // 1단계 게이트를 손으로 옮겨 적지 않고 평가기의 표에서 가져온다(§15.1)
-      status: { in: [...statusesAllowing('file', 'file.read')] },
+      status: { in: [...this.registry.statusesAllowing('file', 'file.read')] },
       deleted_at: null,
       OR: [{ owner_id: subject.id }, { id: { in: [...allowIds] } }],
       ...(denyIds.size > 0 ? { NOT: { id: { in: [...denyIds] } } } : {}),

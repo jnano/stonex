@@ -9,6 +9,7 @@
  *  - 시뮬레이터 질의가 전건 감사에 남는다
  *  - 비UUID·미등록 타입이 404 로 정규화된다
  */
+import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { config } from 'dotenv';
@@ -82,8 +83,8 @@ describe('WP-15 ADM-4 감사 조회 · ADM-5 시뮬레이터 (실 DB)', () => {
     const audit = new AuditService();
     const store = new PrismaGrantStore(p);
     redis = new RedisService();
-    authz = new AuthorizationService(store);
-    loader = new ResourceLoaderRegistry(p);
+    authz = new AuthorizationService(store, testRegistry(p));
+    loader = new ResourceLoaderRegistry(testRegistry(p));
     audits = new AuditQueryService(p);
     simulator = new PermissionSimulatorService(
       p, authz, new SnapshotService(p, new PermissionCacheService(redis)), loader, audit,

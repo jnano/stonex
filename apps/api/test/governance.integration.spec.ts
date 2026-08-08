@@ -9,6 +9,7 @@
  *  - 순찰 **실패**가 대시보드에 "검사 실패"로 구분 표시된다 (정상으로 오인 금지 — RT-20)
  *  - 이상 탐지 규칙이 정황을 신호로 올리되 자동 동결하지 않는다
  */
+import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { config } from 'dotenv';
@@ -88,7 +89,7 @@ describe('WP-14b L-2 동결 · 거버넌스 API (실 DB)', () => {
     const audit = new AuditService();
     notifier = new CollectingNotifier();
     freezes = new GovernanceFreezeService(p, audit);
-    grants = new ResourceGrantService(audit, freezes);
+    grants = new ResourceGrantService(audit, freezes, testRegistry(p));
     const patrol = new GovernancePatrolService(p, audit, grants, new PrismaGrantStore(p), notifier);
     statusService = new GovernanceStatusService(p, patrol);
     anomalies = new AnomalyDetectionService(p, freezes, notifier);

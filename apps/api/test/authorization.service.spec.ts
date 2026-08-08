@@ -3,6 +3,7 @@
  * 기획서 §4.8 전 사례 + 경계 사례. Grant 는 인메모리 스토어로 주입한다
  * (실 DB 경로는 grant-paths.integration.spec.ts 가 검증).
  */
+import { testRegistry } from './helpers/registry';
 import { AuthorizationService } from '../src/authorization/authorization.service';
 import { GrantStore, PermissionScope, ResourceRef, SubjectSnapshot } from '../src/authorization/types';
 
@@ -43,7 +44,7 @@ const FUTURE = new Date(Date.now() + 3_600_000);
 const PAST = new Date(Date.now() - 3_600_000);
 
 describe('AuthorizationService.can — §4.8 표 사례', () => {
-  const svc = (rows?: Record<string, GrantRow[]>) => new AuthorizationService(new InMemoryGrantStore(rows));
+  const svc = (rows?: Record<string, GrantRow[]>) => new AuthorizationService(new InMemoryGrantStore(rows), testRegistry());
 
   const cases: Array<{
     name: string;
