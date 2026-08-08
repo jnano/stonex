@@ -495,6 +495,64 @@ model PostAttachment {
   @@id([post_id, file_id])
   @@map("post_attachments")
 }
+
+// ── board 모듈 기여: WP-B3 상호작용 (D-2) ──
+
+// 이벤트 버스 outbox (스펙 §6.2 비동기 레인) — 도메인 트랜잭션과 함께 커밋되고
+// 워커가 at-least-once 로 전달한다. 중복 억제는 소비자 측 멱등(source_event_id 유니크).
+model BoardOutboxEvent {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id    String    @db.Uuid
+  topic        String    @db.VarChar(48) // comment.created | reaction.added | …
+  payload      Json
+  attempts     Int       @default(0)
+  last_error   String?
+  created_at   DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
+  processed_at DateTime? @db.Timestamptz()
+
+  @@index([processed_at, created_at])
+  @@map("board_outbox_events")
+}
+
+// 알림 (기반 기능모듈 — 스펙 §6.4, RT-32). 내용은 링크·최소 메타만(§6.5 mention 규칙) —
+// 열람 시점에 접근을 재판정하므로 알림 자체가 유출 경로가 되지 않는다.
+model BoardNotification {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String    @db.Uuid
+  user_id         String    @db.Uuid
+  kind            String    @db.VarChar(48)
+  payload         Json
+  source_event_id String    @db.Uuid
+  created_at      DateTime  @default(dbgenerated("now()")) @db.Timestamptz()
+  read_at         DateTime? @db.Timestamptz()
+
+  // at-least-once 전달의 중복 억제 — 같은 이벤트가 같은 사람에게 두 번 오지 않는다(R-B14)
+  @@unique([user_id, source_event_id])
+  @@index([user_id, read_at, created_at])
+  @@map("board_notifications")
+}
+
+// 반응 (기능모듈 reaction — §6.4). 토글 멱등: 같은 (글, 사람, 종류)는 한 번만
+model BoardReaction {
+  post_id    String   @db.Uuid
+  user_id    String   @db.Uuid
+  kind       String   @db.VarChar(24)
+  created_at DateTime @default(dbgenerated("now()")) @db.Timestamptz()
+
+  @@id([post_id, user_id, kind])
+  @@map("board_reactions")
+}
+
+// 태그 (기능모듈 tag — §6.4)
+model BoardTag {
+  post_id String @db.Uuid
+  tag     String @db.VarChar(48)
+
+  @@id([post_id, tag])
+  @@index([tag])
+  @@map("board_tags")
+}
+
 // ═══ board 모듈 기여 끝 ═══
 
 // 이메일 인증(AUTH-1)·비밀번호 재설정(AUTH-4) 토큰 — 해시만 저장, 1회용

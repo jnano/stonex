@@ -332,6 +332,7 @@ export interface PostDetail extends PostSummary {
   bodyMd: string;
   updatedAt: string;
   attachments: Attachment[];
+  tags: string[];
 }
 
 export interface CommentView {
@@ -392,8 +393,10 @@ export const endpoints = {
   // ── board 모듈 기여 (D-2, WP-B1) ──
   boards: (page = 1) => api<{ items: BoardSummary[]; total: number }>(`/boards?page=${page}`),
   board: (id: string) => api<BoardSummary>(`/boards/${id}`),
-  boardPosts: (boardId: string, page = 1) =>
-    api<{ items: PostSummary[]; total: number }>(`/boards/${boardId}/posts?page=${page}`),
+  boardPosts: (boardId: string, cursor?: string) =>
+    api<{ items: PostSummary[]; nextCursor: string | null }>(
+      `/boards/${boardId}/posts${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+    ),
   post: (id: string) => api<PostDetail>(`/posts/${id}`),
   postComments: (id: string) => api<CommentView[]>(`/posts/${id}/comments`),
   createPost: (boardId: string, body: { title: string; bodyMd: string; attachmentFileIds?: string[] }) =>
@@ -406,6 +409,18 @@ export const endpoints = {
     }),
   completeBoardUpload: (body: { uploadId: string; checksum: string; name: string }) =>
     api<Attachment>('/boards/attachments/complete', { method: 'POST', body: JSON.stringify(body) }),
+  createComment: (postId: string, body: { bodyMd: string; parentId?: string }) =>
+    api<CommentView>(`/posts/${postId}/comments`, { method: 'POST', body: JSON.stringify(body) }),
+  toggleReaction: (postId: string, kind: string) =>
+    api<{ added: boolean }>(`/posts/${postId}/reactions`, { method: 'POST', body: JSON.stringify({ kind }) }),
+  reactions: (postId: string) =>
+    api<Array<{ kind: string; count: number; mine: boolean }>>(`/posts/${postId}/reactions`),
+  notifications: (unreadOnly = false) =>
+    api<Array<{ id: string; kind: string; payload: { boardId?: string; postId?: string }; createdAt: string; readAt: string | null }>>(
+      `/notifications${unreadOnly ? '?unread=1' : ''}`,
+    ),
+  markNotificationRead: (id: string) =>
+    api<{ ok: true }>(`/notifications/${id}/read`, { method: 'POST' }),
 
   files: (page = 1) => api<{ items: FileSummary[]; total: number }>(`/files?page=${page}`),
   file: (id: string) => api<FileSummary>(`/files/${id}`),

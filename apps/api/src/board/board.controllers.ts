@@ -10,6 +10,8 @@ import { AttachmentResult, BoardAttachmentService } from './board-attachment.ser
 import { UploadTicket } from '../storage/upload-session.service';
 import { PostDetail, PostSummary, PostsService } from './posts.service';
 import { CommentView, CommentsService } from './comments.service';
+import { BoardReactionsService, ReactionSummary } from './capabilities.service';
+import { BoardNotificationService, NotificationView } from './notification.service';
 
 /**
  * 게시판 API (WP-B1 — 스펙 §10.1).
@@ -44,6 +46,7 @@ class CreatePostDto {
   @IsString() @Length(1, 100_000) bodyMd!: string;
   @IsOptional() @IsBoolean() draft?: boolean;
   @IsOptional() @IsUUID(undefined, { each: true }) attachmentFileIds?: string[];
+  @IsOptional() @IsString({ each: true }) tags?: string[];
 }
 
 class UpdatePostDto {
@@ -51,6 +54,11 @@ class UpdatePostDto {
   @IsOptional() @IsString() @Length(1, 100_000) bodyMd?: string;
   @IsOptional() @IsBoolean() publish?: boolean;
   @IsOptional() @IsUUID(undefined, { each: true }) attachmentFileIds?: string[];
+  @IsOptional() @IsString({ each: true }) tags?: string[];
+}
+
+class ReactionDto {
+  @IsString() @Length(1, 24) kind!: string;
 }
 
 class IssueUploadDto {
@@ -146,10 +154,10 @@ export class BoardsController {
   async listPosts(
     @Req() req: AuthedRequest,
     @Param('id') id: string,
-    @Query('page') page?: string,
+    @Query('cursor') cursor?: string,
     @Query('size') size?: string,
-  ): Promise<{ items: PostSummary[]; total: number }> {
-    return this.posts.list(subjectOf(req), id, Number(page ?? 1), Number(size ?? 20));
+  ): Promise<{ items: PostSummary[]; nextCursor: string | null }> {
+    return this.posts.list(subjectOf(req), id, { cursor, size: Number(size ?? 20) });
   }
 
   /** 드래그앤드랍 첨부 세션 (§7.2) — 쓰기 가능한 게시판에서만. 응답에 storage_key 없음 */
@@ -189,6 +197,7 @@ export class PostsController {
   constructor(
     private readonly posts: PostsService,
     private readonly comments: CommentsService,
+    private readonly reactions: BoardReactionsService,
   ) {}
 
   @RequirePermission('board.read', { resource: { type: 'post', param: 'id' } })
@@ -212,6 +221,25 @@ export class PostsController {
   async remove(@Req() req: AuthedRequest, @Param('id') id: string): Promise<{ ok: true }> {
     await this.posts.softDelete(subjectOf(req), id);
     return { ok: true };
+  }
+
+  /** 반응 토글 (기능모듈 reaction — §6.4). 꺼진 게시판이면 404 */
+  @RequirePermission('board.read', { resource: { type: 'post', param: 'id' } })
+  @HttpPost(':id/reactions')
+  async toggleReaction(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: ReactionDto,
+  ): Promise<{ added: boolean }> {
+    const subject = subjectOf(req);
+    const post = await this.posts.loadForAdmin(subject, id); // 존재·테넌트 확인 재사용
+    return this.reactions.toggle(subject, post, body.kind);
+  }
+
+  @RequirePermission('board.read', { resource: { type: 'post', param: 'id' } })
+  @Get(':id/reactions')
+  async listReactions(@Req() req: AuthedRequest, @Param('id') id: string): Promise<ReactionSummary[]> {
+    return this.reactions.summary(id, subjectOf(req).id);
   }
 
   @RequirePermission('board.read', { resource: { type: 'post', param: 'id' } })
@@ -249,6 +277,28 @@ export class CommentsController {
   @Delete(':id')
   async remove(@Req() req: AuthedRequest, @Param('id') id: string): Promise<{ ok: true }> {
     await this.comments.softDelete(subjectOf(req), id);
+    return { ok: true };
+  }
+}
+
+/** 알림 (기반 기능모듈 — 본인 한정, 권한 검사 대상 아님) */
+@Controller('notifications')
+export class NotificationsController {
+  constructor(private readonly notifications: BoardNotificationService) {}
+
+  @AuthenticatedOnly()
+  @Get()
+  async list(
+    @Req() req: AuthedRequest,
+    @Query('unread') unread?: string,
+  ): Promise<NotificationView[]> {
+    return this.notifications.listMine(subjectOf(req), unread === '1');
+  }
+
+  @AuthenticatedOnly()
+  @HttpPost(':id/read')
+  async markRead(@Req() req: AuthedRequest, @Param('id') id: string): Promise<{ ok: true }> {
+    await this.notifications.markRead(subjectOf(req), id);
     return { ok: true };
   }
 }

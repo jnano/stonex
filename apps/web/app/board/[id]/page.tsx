@@ -11,6 +11,7 @@ export default function BoardPostsPage() {
   const params = useParams<{ id: string }>();
   const [board, setBoard] = useState<BoardSummary | null>(null);
   const [items, setItems] = useState<PostSummary[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -20,10 +21,22 @@ export default function BoardPostsPage() {
       .then(([b, p]) => {
         setBoard(b);
         setItems(p.items);
+        setNextCursor(p.nextCursor);
       })
       .catch((e) => setError(errorText(e, '게시판을 불러오지 못했습니다.')))
       .finally(() => setLoaded(true));
   }, [params?.id]);
+
+  const loadMore = () => {
+    if (!params?.id || !nextCursor) return;
+    void endpoints
+      .boardPosts(params.id, nextCursor)
+      .then((p) => {
+        setItems((prev) => [...prev, ...p.items]);
+        setNextCursor(p.nextCursor);
+      })
+      .catch((e) => setError(errorText(e, '더 불러오지 못했습니다.')));
+  };
 
   return (
     <Shell title={board ? board.name : '게시판'}>
@@ -51,6 +64,11 @@ export default function BoardPostsPage() {
           </div>
         </Card>
       ))}
+      {nextCursor && (
+        <p style={{ textAlign: 'center' }}>
+          <button onClick={loadMore} style={s.button}>더 보기</button>
+        </p>
+      )}
     </Shell>
   );
 }

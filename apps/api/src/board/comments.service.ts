@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { SubjectSnapshot } from '../authorization/types';
 import { BoardsService } from './boards.service';
+import { BoardEventBus } from './event-bus';
 import { COMMENT_TOMBSTONE, renderBodyHtml } from './render';
 
 export interface CommentView {
@@ -37,6 +38,7 @@ export class CommentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly boards: BoardsService,
+    private readonly bus: BoardEventBus,
   ) {}
 
   /** 게시글의 댓글 전체 — path 사전순 = 트리 전위순회(§9). 페이징은 WP-B3 */
@@ -82,9 +84,10 @@ export class CommentsService {
         parentPath = parent.path + '.';
         depth = parent.depth + 1;
       }
-      // 형제 시퀀스: 같은 부모의 마지막 path + 1. 동시 작성 경합의 정밀 처리(§9.3 advisory
-      // lock)는 WP-B3 — 여기서는 게시글 행 잠금으로 직렬화한다(카운터 증감이 어차피 잠근다)
-      await tx.$queryRaw`SELECT id FROM posts WHERE id = ${post.id}::uuid FOR UPDATE`;
+      // 형제 시퀀스 동시성(§9.3): **부모 단위 advisory lock** — 같은 부모에 동시 작성만
+      // 직렬화되고, 다른 부모·다른 스레드는 병행한다. 게시글 행 FOR UPDATE(B1 잠정판)는
+      // 글 전체 댓글을 직렬화해 인기 글에서 병목이었다. xact lock 이라 커밋 시 자동 해제.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${(input.parentId ?? post.id) + ':siblings'}))`;
       const last = await tx.comment.findFirst({
         where: { post_id: post.id, parent_id: input.parentId ?? null },
         orderBy: { path: 'desc' },
@@ -105,6 +108,12 @@ export class CommentsService {
         },
       });
       await tx.post.update({ where: { id: post.id }, data: { comment_count: { increment: 1 } } });
+      // 부수효과(작성자 알림)는 비동기 레인 — 본 트랜잭션과 함께 커밋(§6.2)
+      await this.bus.publish(tx, {
+        tenantId: subject.tenantId,
+        topic: 'comment.created',
+        payload: { postId: post.id, boardId: post.board_id, actorId: subject.id, commentId: created.id },
+      });
       await this.audit.record(tx, {
         tenantId: subject.tenantId, actorId: subject.id, action: 'comment.create',
         targetType: 'comment', targetId: created.id,
