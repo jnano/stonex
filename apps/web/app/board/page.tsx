@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { endpoints, errorText, type BoardSummary } from '../../lib/api';
 import { Banner, Card, Empty, Shell, s, statusStyle } from '../../lib/ui';
+import { visibilityLabel } from '../../lib/board-labels';
 
 /**
  * 게시판 목록 (WP-B1).
@@ -41,7 +42,7 @@ export default function BoardListPage() {
             </div>
             <div style={s.row}>
               {b.visibility !== 'PUBLIC' && (
-                <span style={statusStyle('unknown')}>{b.visibility === 'PRIVATE' ? '비공개' : '제한'}</span>
+                <span style={statusStyle('unknown')}>{visibilityLabel(b.visibility)}</span>
               )}
               {b.status === 'ARCHIVED' && <span style={statusStyle('unknown')}>보관됨</span>}
             </div>
