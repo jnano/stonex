@@ -53,6 +53,11 @@ export default function Home() {
           상태: {me.status} · 역할: {me.roles.join(', ') || '없음'} · 권한 {me.permissions.length}종
         </p>
         <nav style={{ display: 'flex', gap: 12, margin: '16px 0', flexWrap: 'wrap' }}>
+          {/* ── board 모듈 기여 (D-2) ── */}
+          <a href="/board">게시판</a>
+          <a href="/notifications">알림</a>
+          <a href="/admin/board">게시판 관리</a>
+          {/* ── board 모듈 기여 끝 ── */}
           <a href="/admin/members">회원</a>
           <a href="/admin/roles">역할</a>
           <a href="/admin/files">파일</a>
