@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { DEV_LOGIN_ENABLED, endpoints, setAccessToken } from '../lib/api';
 import { useSession } from '../lib/session';
 import { visibleNavItems } from '../lib/nav';
+import { Card, Shell } from '../lib/ui';
 
 /** 로그인 + 진입 화면. 실패 사유는 서버가 구분해 주지 않는다(§10.2) */
 export default function Home() {
@@ -47,20 +48,29 @@ export default function Home() {
   }
 
   if (me) {
+    /**
+     * 로그인 후 홈도 **Shell 을 쓴다**.
+     *
+     * 이전에는 홈만 자체 레이아웃이라 상단 메뉴바가 없었다 — 로그인 직후 착지하는
+     * 화면에 헤더가 없어 어디로 갈지 알 수 없었고, 특히 관리 화면 권한이 없는
+     * 일반 회원은 본문 링크 몇 개만 보였다. 껍데기를 하나로 맞춘다(§15.1).
+     */
     return (
-      <main style={{ padding: 32, maxWidth: 720, margin: '0 auto' }}>
-        <h1>stonex 관리자</h1>
-        <p>
-          상태: {me.status} · 역할: {me.roles.join(', ') || '없음'} · 권한 {me.permissions.length}종
-        </p>
-        {/* 링크 목록은 Shell 과 같은 단일 출처(lib/nav.ts) — 레이아웃만 다르다 */}
-        <nav style={{ display: 'flex', gap: 12, margin: '16px 0', flexWrap: 'wrap' }}>
-          {visibleNavItems(can).map((item) => (
-            <a key={item.href} href={item.href}>{item.label}</a>
-          ))}
-        </nav>
-        <button onClick={logout}>로그아웃</button>
-      </main>
+      <Shell title="stonex">
+        <Card>
+          <p style={{ margin: 0 }}>
+            상태 {me.status} · 역할{' '}
+            {me.roles.join(', ') || '없음'} · 권한 {me.permissions.length}종
+          </p>
+        </Card>
+        <Card title="바로가기">
+          <nav style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {visibleNavItems(can).map((item) => (
+              <a key={item.href} href={item.href}>{item.label}</a>
+            ))}
+          </nav>
+        </Card>
+      </Shell>
     );
   }
 

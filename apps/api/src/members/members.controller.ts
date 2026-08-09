@@ -1,12 +1,26 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID, Length, MaxLength } from 'class-validator';
 import { AuthenticatedOnly, Public, RequireDominance, RequirePermission } from '../authorization/decorators';
 import { AuthedRequest } from '../authorization/guards/auth.guard';
 import { SubjectSnapshot } from '../authorization/types';
 import { MembersService } from './members.service';
 import { EmailChangeService, EmailChangeView } from './email-change.service';
 import { MemberDetail, MemberSummary } from './member.serializer';
+
+/** 회원 생성 (MEM-7) — 비밀번호는 받지 않는다. 서버가 임시값을 발급한다 */
+export class CreateMemberDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @Length(1, 100)
+  name!: string;
+
+  @IsOptional()
+  @IsUUID(undefined, { each: true })
+  roleIds?: string[];
+}
 
 /** 이메일 변경 요청 — 재인증 요소를 함께 받는다(§6.2 MEM-1) */
 export class RequestEmailChangeDto {
@@ -120,6 +134,19 @@ export class MembersController {
     @Query('size') size?: string,
   ): Promise<{ items: MemberSummary[]; total: number }> {
     return this.members.list(Number(page ?? 1), Number(size ?? 20));
+  }
+
+  /**
+   * MEM-7 회원 생성 (관리자 초대). 임시 비밀번호는 응답에 **한 번만** 실린다 —
+   * 저장하지 않으므로 다시 볼 수 없고, 최초 로그인 시 변경이 강제된다(§8.5).
+   */
+  @RequirePermission('member.create')
+  @Post()
+  async create(
+    @Req() req: AuthedRequest,
+    @Body() body: CreateMemberDto,
+  ): Promise<{ member: MemberDetail; temporaryPassword: string }> {
+    return this.members.create(subjectOf(req), body);
   }
 
   @RequirePermission('member.read')

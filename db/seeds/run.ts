@@ -62,6 +62,33 @@ async function main(): Promise<void> {
     if (!email || !password) {
       throw new Error('SEED_SUPER_ADMIN_EMAIL / SEED_SUPER_ADMIN_PASSWORD 환경 변수가 필요합니다.');
     }
+    /**
+     * **이미 살아 있는 SUPER_ADMIN 이 있으면 새로 만들지 않는다.**
+     *
+     * 시드는 upsert 라 멱등이지만, 그 기준은 `이메일`이다. 최초 관리자가 이메일을
+     * 바꾼 뒤(MEM-1) 시드를 다시 돌리면 "그 이메일 계정이 없네" 하고 **두 번째
+     * 최고관리자를 만든다** — 실제로 발생했다. 최고관리자는 시스템의 최상위 권한이라
+     * 의도치 않게 늘어나는 것 자체가 사고다(§10.1 이 그 수를 지키는 이유).
+     *
+     * 권한·역할 시드는 그대로 돌리고 관리자 생성만 건너뛴다 — 재실행의 목적은
+     * 대개 권한 갱신이지 관리자 추가가 아니다.
+     */
+    const existingSuperAdmins = await prisma.user.count({
+      where: {
+        tenant_id: DEFAULT_TENANT_ID,
+        deleted_at: null,
+        status: 'ACTIVE',
+        user_roles: { some: { role: { code: 'SUPER_ADMIN' } } },
+      },
+    });
+    if (existingSuperAdmins > 0) {
+      console.log(
+        '시드 완료: 테넌트 1, Permission %d, 역할 %d — 활성 SUPER_ADMIN %d명이 이미 있어 관리자 생성은 건너뜁니다.',
+        PERMISSIONS.length, ROLES.length, existingSuperAdmins,
+      );
+      return;
+    }
+
     const passwordHash = await hash(password, { algorithm: 2 /* argon2id */ });
     const admin = await prisma.user.upsert({
       where: { tenant_id_email: { tenant_id: DEFAULT_TENANT_ID, email } },

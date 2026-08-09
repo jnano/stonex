@@ -5,9 +5,11 @@ import { AuditService } from '../audit/audit.service';
 import { RoleGrantService } from '../authorization/role-grant.service';
 import { PermVersionService } from '../cache/perm-version.service';
 import { SnapshotService } from '../authorization/snapshot.service';
+import { randomBytes } from 'node:crypto';
 import { checkDominance, checkRoleSubset } from '../authorization/dominance';
 import { SubjectSnapshot } from '../authorization/types';
 import { ResourceGrantService } from '../authorization/resource-grant.service';
+import { PasswordService } from '../auth/password.service';
 import { SuperAdminGuardService } from './super-admin-guard.service';
 import { MemberDetail, MemberSummary, toMemberDetail, toMemberSummary } from './member.serializer';
 
@@ -37,6 +39,7 @@ export class MembersService {
     private readonly snapshots: SnapshotService,
     private readonly superAdminGuard: SuperAdminGuardService,
     private readonly resourceGrants: ResourceGrantService,
+    private readonly passwords: PasswordService,
   ) {}
 
   // ── MEM-2 목록·상세 ───────────────────────────────────────────
@@ -88,6 +91,76 @@ export class MembersService {
   private async assertDominance(actor: SubjectSnapshot, targetUserId: string): Promise<void> {
     const check = await this.dominanceCheck(actor, targetUserId);
     if (!check.manageable) throw new ForbiddenException();
+  }
+
+  // ── MEM-7 회원 생성 (관리자 초대) ─────────────────────────────
+  /**
+   * 관리자가 회원 계정을 만든다.
+   *
+   * 비밀번호는 **임시값을 발급하고 최초 로그인 시 변경을 강제**한다(온보딩 §8.5) —
+   * 관리자가 정한 비밀번호를 그대로 쓰게 두면 그 값을 아는 사람이 둘이 된다.
+   * 역할은 **행위자가 가진 것만** 줄 수 있다(§4.6-2 부분집합) — 자기보다 강한 계정을
+   * 만들어 권한을 우회하는 경로를 막는다.
+   *
+   * 임시 비밀번호는 응답으로 한 번만 돌려준다 — 저장하지 않으므로 다시 볼 수 없다.
+   */
+  async create(
+    actor: SubjectSnapshot,
+    input: { email: string; name: string; roleIds?: string[] },
+  ): Promise<{ member: MemberDetail; temporaryPassword: string }> {
+    const existing = await this.prisma.user.findUnique({
+      where: { tenant_id_email: { tenant_id: actor.tenantId, email: input.email } },
+    });
+    if (existing) throw new BadRequestException('이미 사용 중인 이메일입니다.');
+
+    const roles = input.roleIds?.length
+      ? await this.prisma.role.findMany({
+          where: { id: { in: [...new Set(input.roleIds)] }, tenant_id: actor.tenantId },
+          include: { role_permissions: { include: { permission: true } } },
+        })
+      : [];
+    if (roles.length !== (input.roleIds ? [...new Set(input.roleIds)].length : 0)) {
+      throw new NotFoundException();
+    }
+    for (const role of roles) {
+      // 부분집합 검사(§4.6-2) — 행위자가 못 가진 권한을 남에게 줄 수 없다
+      const subset = checkRoleSubset(
+        new Set(role.role_permissions.map((rp) => rp.permission.code)),
+        new Set(actor.permissions.keys()),
+      );
+      if (!subset.allowed) throw new ForbiddenException();
+    }
+
+    const temporaryPassword = randomBytes(12).toString('base64url');
+    const passwordHash = await this.passwords.hash(temporaryPassword);
+
+    const created = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const user = await tx.user.create({
+        data: {
+          tenant_id: actor.tenantId,
+          email: input.email,
+          name: input.name,
+          password_hash: passwordHash,
+          status: 'ACTIVE',
+          // 온보딩 강제 — 임시 비밀번호를 그대로 쓰지 못하게 한다(§8.5)
+          must_change_password: true,
+        },
+      });
+      for (const role of roles) {
+        await this.roleGrants.grant(tx, {
+          tenantId: actor.tenantId, userId: user.id, roleId: role.id, roleCode: role.code,
+          actorId: actor.id, expiresAt: null, before: { roles: [] },
+        });
+      }
+      await this.audit.record(tx, {
+        tenantId: actor.tenantId, actorId: actor.id, action: 'member.create',
+        targetType: 'user', targetId: user.id,
+        // 임시 비밀번호는 감사에 남기지 않는다 — 로그는 보존이 길고 회수가 어렵다
+        detail: { before: {}, after: { email: user.email, roles: roles.map((r) => r.code) } },
+      });
+      return user;
+    });
+    return { member: await this.detail(created.id), temporaryPassword };
   }
 
   // ── MEM-3 회원 수정 ───────────────────────────────────────────
