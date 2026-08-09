@@ -1,5 +1,6 @@
 import { HealthController } from './health.controller';
 import { AuthController } from './auth/auth.controller';
+import { devLoginControllers } from './auth/dev-login';
 import { MeController } from './me/me.controller';
 import { MembersController } from './members/members.controller';
 import { AdminRolesController } from './admin/roles.controller';
@@ -47,4 +48,7 @@ export const CONTROLLERS = [
   NotificationsController,
   UserBlocksController,
   BoardAdminController,
+  // 개발 전용 로그인 — DEV_LOGIN=1 + 비프로덕션일 때만 배열에 들어간다.
+  // 조건 미충족이면 **라우트 자체가 없다**(404, 인가 판정 이전). 배포 차단의 1차 방어다.
+  ...devLoginControllers(),
 ];

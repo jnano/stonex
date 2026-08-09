@@ -400,6 +400,14 @@ export interface CommentView {
 }
 // ── board 모듈 기여 끝 ──
 
+/**
+ * 개발 전용 로그인 표시 조건 — `NEXT_PUBLIC_DEV_LOGIN=1` **명시**일 때만.
+ *
+ * 값이 빌드 시점에 인라인되므로, 이 변수 없이 빌드하면 버튼도 호출도 번들에 남지
+ * 않는다. 서버 쪽 라우트도 별도 플래그를 요구하므로 **양쪽이 모두 켜져야** 동작한다.
+ */
+export const DEV_LOGIN_ENABLED = process.env.NEXT_PUBLIC_DEV_LOGIN === '1';
+
 export const endpoints = {
   login: (email: string, password: string) =>
     api<{ accessToken: string; refreshToken: string }>('/auth/login', {
@@ -407,6 +415,12 @@ export const endpoints = {
       body: JSON.stringify({ email, password }),
     }),
   me: () => api<MeResponse>('/me'),
+  /** 개발 전용 — 서버에도 DEV_LOGIN=1 이 있어야 라우트가 존재한다(없으면 404) */
+  devLogin: (email: string) =>
+    api<{ accessToken: string; refreshToken: string }>('/auth/dev/login', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
 
   // ── 온보딩(§8.5) — 미완료 세션은 이 경로들만 접근할 수 있다 ──
   onboardingStatus: () => api<OnboardingStatus>('/auth/onboarding/status'),

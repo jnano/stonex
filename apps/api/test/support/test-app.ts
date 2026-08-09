@@ -20,6 +20,13 @@ if (!TEST_DATABASE_URL) {
 }
 process.env.DATABASE_URL = TEST_DATABASE_URL;
 process.env.JWT_SECRET ??= 'test-secret-value-at-least-32-characters-long';
+/**
+ * 개발 전용 로그인은 검증 앱에 **절대 섞이지 않는다**.
+ * 개발자의 .env 에 DEV_LOGIN=1 이 있으면 그 라우트가 앱에 붙어 G-1 골든이 로컬과
+ * CI 에서 달라진다 — 검증이 환경에 좌우되면 골든의 의미가 사라진다.
+ * 이 경로를 검증하는 스펙은 스스로 켜고 끈다(dev-login.spec).
+ */
+delete process.env.DEV_LOGIN;
 
 export async function createTestApp(): Promise<INestApplication> {
   const { AppModule } = await import('../../src/app.module');
