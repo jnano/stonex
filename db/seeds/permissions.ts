@@ -17,6 +17,7 @@ export interface PermissionDef {
 /** 기획서 §4.4 표와 1:1 — 26종 */
 export const PERMISSIONS: PermissionDef[] = [
   { code: 'member.read', scope: 'global', module: 'core', description: '회원 목록·상세 조회' },
+  { code: 'member.create', scope: 'global', module: 'core', description: '회원 계정 생성(관리자 초대)' },
   { code: 'member.update', scope: 'global', module: 'core', description: '회원 정보 수정' },
   { code: 'member.role.assign', scope: 'global', module: 'core', description: '회원에게 역할 부여/회수' },
   { code: 'member.ban', scope: 'global', module: 'core', description: '회원 정지/해제' },
@@ -112,7 +113,7 @@ const DOMAIN_MANAGER_PERMS = [
 ];
 const OPERATOR_PERMS = [
   ...new Set([...FILE_MANAGER_PERMS, ...DOMAIN_MANAGER_PERMS]),
-  'member.read', 'member.update', 'member.ban', 'member.role.assign', 'member.delete',
+  'member.read', 'member.create', 'member.update', 'member.ban', 'member.role.assign', 'member.delete',
   'admin.audit.read', 'governance.read',
   // ── board 모듈 기여 (D-2): 운영자는 전 게시판 운영·타인 글/댓글 삭제. board.manage 는
   // SUPER_ADMIN 전용(생성·삭제는 최고 권한 — 스펙 §3.2, 격자는 '*' 전개로 유지) ──

@@ -511,6 +511,10 @@ export const endpoints = {
       method: 'POST', body: JSON.stringify({ uphold }),
     }),
   boardPatrol: () => api<BriResult[]>('/admin/board/patrol'),
+  createMember: (body: { email: string; name: string; roleIds?: string[] }) =>
+    api<{ member: { id: string; email: string }; temporaryPassword: string }>('/members', {
+      method: 'POST', body: JSON.stringify(body),
+    }),
   acceptAnswer: (postId: string, commentId: string) =>
     api<PostDetail>(`/posts/${postId}/accept`, { method: 'POST', body: JSON.stringify({ commentId }) }),
   deletePost: (id: string) => api<{ ok: true }>(`/posts/${id}`, { method: 'DELETE' }),

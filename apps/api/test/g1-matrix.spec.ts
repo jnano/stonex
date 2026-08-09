@@ -23,6 +23,8 @@ import { MATRIX_ROWS, RowActor, createActorForRole, refreshActorToken, seedRoles
 jest.setTimeout(180_000);
 
 const GOLDEN_PATH = path.resolve(__dirname, '../../../governance/matrix.yaml');
+/** URL·본문에서 픽스처 id 를 뽑아낸다 — 생존 검사 대상을 찾기 위한 것 */
+const UUID_IN_PATH = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const TENANT = '00000000-0000-0000-0000-000000009993';
 
 /**
@@ -48,6 +50,8 @@ const ENDPOINTS: Array<{
   { id: 'GET /health/ready', method: 'get', path: '/api/v1/health/ready', serverErrorIsValid: true },
   { id: 'GET /me', method: 'get', path: '/api/v1/me' },
   { id: 'GET /members', method: 'get', path: '/api/v1/members' },
+  // MEM-7 회원 생성 — 매 행마다 다른 이메일이어야 두 번째 행이 409 로 죽지 않는다
+  { id: 'POST /members', method: 'post', path: '/api/v1/members', body: { email: 'new-{row}@t.local', name: '신규' } },
   { id: 'GET /members/me', method: 'get', path: '/api/v1/members/me' },
   { id: 'PATCH /members/me', method: 'patch', path: '/api/v1/members/me', body: { name: 'x' } },
   { id: 'GET /members/:id', method: 'get', path: '/api/v1/members/{target}' },
@@ -198,6 +202,22 @@ const ENDPOINTS: Array<{
   { id: 'DELETE /admin/roles/:id', method: 'delete', path: '/api/v1/admin/roles/{memberRole}' },
 ];
 
+/**
+ * 픽스처 생존 검사 — **가짜 deny 를 구조적으로 막는 장치**.
+ *
+ * 매트릭스는 (엔드포인트 × 행위자)를 순차 실행하는데, 파괴적 라우트(DELETE·이동 등)가
+ * 공용 픽스처를 소모하면 **그 뒤 행은 권한이 아니라 "대상 없음"으로 404** 가 되고,
+ * 404 는 deny 로 접히므로 **권한 판정으로 위장된 채 골든에 굳는다.** 실제로 세 번
+ * 발생했고(파일 소유자·게시글·댓글), 매번 사람이 눈치채야 했다.
+ *
+ * 근본 해결은 "픽스처를 더 잘 나누기"가 아니라 **소모를 감지해 실패시키는 것**이다.
+ * 판정 직전에 URL·본문이 가리키는 픽스처가 살아 있는지 확인하고, 죽었으면 조용히
+ * deny 로 기록하는 대신 그 자리에서 실패한다 — 잠복이 불가능해진다.
+ *
+ * 등록되지 않은 id 는 검사하지 않는다(존재하지 않아야 정상인 더미 UUID 등).
+ */
+type FixtureProbe = () => Promise<boolean>;
+
 /** 응답 상태 → 매트릭스 값. 권한 관점에서 '허용'인지 '거부'인지만 남긴다 */
 function verdict(status: number, context: string, serverErrorIsValid = false): 'allow' | 'deny' {
   // 401/403/404 는 거부. 404 는 존재 은닉(§10.2)도 포함하므로 거부로 본다.
@@ -233,6 +253,8 @@ describe('G-1 권한 매트릭스', () => {
   const rowDomainGrants: Record<string, string> = {};
   /** 해제 라우트가 **존재하는** 동결을 가리켜야 인가 판정이 드러난다 */
   let freezeId: string;
+  /** id → "아직 살아 있는가" 검사기. 판정 전에 확인해 가짜 deny 를 막는다 */
+  const fixtureProbes = new Map<string, FixtureProbe>();
   // ── board 모듈 기여 (D-2): PUBLIC 게시판 + 타인 소유 게시글·댓글. 삭제 라우트는 행별 픽스처 ──
   let boardId: string;
   let postId: string;
@@ -401,6 +423,43 @@ describe('G-1 권한 매트릭스', () => {
     })).id;
 
     app = await createTestApp();
+
+    // 살아 있어야 하는 픽스처를 등록한다. 행별 픽스처는 행마다 다른 id 를 갖는다.
+    const alive = {
+      post: (id: string): FixtureProbe => async () => {
+        const row = await prisma.post.findUnique({ where: { id } });
+        return row !== null && row.deleted_at === null;
+      },
+      comment: (id: string): FixtureProbe => async () => {
+        const row = await prisma.comment.findUnique({ where: { id } });
+        return row !== null && row.deleted_at === null;
+      },
+      file: (id: string): FixtureProbe => async () => {
+        const row = await prisma.file.findUnique({ where: { id } });
+        return row !== null && row.deleted_at === null;
+      },
+      domain: (id: string): FixtureProbe => async () => {
+        const row = await prisma.domain.findUnique({ where: { id } });
+        return row !== null && row.deleted_at === null;
+      },
+      board: (id: string): FixtureProbe => async () => {
+        const row = await prisma.board.findUnique({ where: { id } });
+        return row !== null && row.deleted_at === null;
+      },
+    };
+    fixtureProbes.set(fileId, alive.file(fileId));
+    fixtureProbes.set(domainId, alive.domain(domainId));
+    fixtureProbes.set(boardId, alive.board(boardId));
+    fixtureProbes.set(postId, alive.post(postId));
+    for (const row of MATRIX_ROWS) {
+      fixtureProbes.set(rowFiles[row], alive.file(rowFiles[row]));
+      fixtureProbes.set(rowDomains[row], alive.domain(rowDomains[row]));
+      fixtureProbes.set(rowPosts[row], alive.post(rowPosts[row]));
+      fixtureProbes.set(rowReportPosts[row], alive.post(rowReportPosts[row]));
+      fixtureProbes.set(rowModeratePosts[row], alive.post(rowModeratePosts[row]));
+      fixtureProbes.set(rowComments[row], alive.comment(rowComments[row]));
+      fixtureProbes.set(rowReactionComments[row], alive.comment(rowReactionComments[row]));
+    }
   });
 
   afterAll(async () => {
@@ -462,12 +521,28 @@ describe('G-1 권한 매트릭스', () => {
             .replace('{memberRole}', memberRoleId)
             .replace('{target}', targetUserId)
             .replace('{grantSubject}', grantSubjectId)
-            .replace('{rowComment}', rowComments[actor.row]),
+            .replace('{rowComment}', rowComments[actor.row])
+            .replace('{row}', actor.row.toLowerCase()),
         );
 
         // 앞선 행의 부작용(비밀번호 변경 등의 pv 증가)이 이 행의 판정을 401 로 오염시키지
         // 않도록, 매 판정 전에 현재 pv 로 토큰을 재발급한다(각 행 독립성 — 픽스처 주석 참조)
         await refreshActorToken(prisma, tokenService, TENANT, actor);
+
+        // 이 판정이 가리키는 픽스처가 앞선 행에 의해 소모되지 않았는지 확인한다.
+        // 죽은 픽스처로 낸 404 는 권한 판정이 아니다 — 조용히 deny 로 굳히지 않는다
+        const referenced = [...url.matchAll(UUID_IN_PATH), ...JSON.stringify(body).matchAll(UUID_IN_PATH)]
+          .map((m) => m[0]);
+        for (const id of new Set(referenced)) {
+          const probe = fixtureProbes.get(id);
+          if (probe && !(await probe())) {
+            throw new Error(
+              `매트릭스 픽스처 소모: ${endpoint.id} / ${actor.row} — ${id} 가 앞선 행에서 삭제됐다. ` +
+                '이 행은 권한이 아니라 "대상 없음"을 재고 있다. 전용 픽스처를 배정하라.',
+            );
+          }
+        }
+
         let req = request(app.getHttpServer())[endpoint.method](url);
         if (actor.authorization) req = req.set('Authorization', actor.authorization);
         if (endpoint.body) req = req.send(body);

@@ -41,6 +41,13 @@ matrix:
     DOMAIN_MANAGER: deny
     OPERATOR: allow
     SUPER_ADMIN: allow
+  "POST /members":
+    anonymous: deny
+    MEMBER: deny
+    FILE_MANAGER: deny
+    DOMAIN_MANAGER: deny
+    OPERATOR: allow
+    SUPER_ADMIN: allow
   "GET /members/me":
     anonymous: deny
     MEMBER: allow

@@ -6,6 +6,7 @@
  *  - 마지막 활성 SUPER_ADMIN 강등·정지·삭제가 **동시 요청 2건 경쟁 상황에서도** 전부 거부
  *  - 정지 계정의 Access·Refresh 토큰 동시 무효화
  */
+import { PasswordService } from '../src/auth/password.service';
 import { testRegistry } from './helpers/registry';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
@@ -73,6 +74,7 @@ describe('WP-5 회원 관리 (실 DB)', () => {
       p, audit, new RoleGrantService(audit, permVersion, new GovernanceFreezeService(p, audit)), permVersion, snapshots,
       new SuperAdminGuardService(),
       grantService,
+      new PasswordService({ isBreached: async () => false }),
     );
 
     await prisma.tenant.upsert({ where: { id: TENANT }, update: {}, create: { id: TENANT, name: 'members-test' } });

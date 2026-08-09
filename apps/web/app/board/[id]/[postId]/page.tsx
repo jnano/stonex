@@ -262,6 +262,26 @@ export default function PostPage() {
       )}
 
       <Card title={`댓글 ${comments.length}개`}>
+        {/* 작성 폼은 **목록보다 위**에 둔다 — 댓글이 길어지면 맨 아래 폼까지
+            스크롤해야 한다. 최상위 댓글 전용이며 답글은 각 댓글의 인라인 폼이 맡는다.
+            댓글이 꺼진 게시판(FAQ 프리셋)에서는 폼 자체를 두지 않는다 */}
+        {!commentsEnabled && (
+          <p style={{ ...s.muted, fontSize: 13, marginTop: 12 }}>이 게시판은 댓글을 받지 않습니다.</p>
+        )}
+        <div style={{ display: commentsEnabled ? 'grid' : 'none', gap: 8, marginBottom: 16 }}>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="댓글 (마크다운 지원)"
+            rows={3}
+            style={{ ...s.input, resize: 'vertical' }}
+          />
+          <div style={s.row}>
+            <button onClick={() => submitComment(draft, null)} disabled={busy || !draft.trim()} style={s.button}>
+              댓글 등록
+            </button>
+          </div>
+        </div>
         {comments.length === 0 && <Empty>아직 댓글이 없습니다.</Empty>}
         {visible.map((c) => {
           const isMine = me !== null && c.ownerId === me.id && c.status !== 'DELETED';
@@ -422,25 +442,6 @@ export default function PostPage() {
           );
         })}
 
-        {/* 하단 폼은 **최상위 댓글 전용** — 답글은 위의 인라인 폼이 맡는다.
-            댓글이 꺼진 게시판(FAQ 프리셋)에서는 폼 자체를 두지 않는다 */}
-        {!commentsEnabled && (
-          <p style={{ ...s.muted, fontSize: 13, marginTop: 12 }}>이 게시판은 댓글을 받지 않습니다.</p>
-        )}
-        <div style={{ display: commentsEnabled ? 'grid' : 'none', gap: 8, marginTop: 12 }}>
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="댓글 (마크다운 지원)"
-            rows={3}
-            style={{ ...s.input, resize: 'vertical' }}
-          />
-          <div style={s.row}>
-            <button onClick={() => submitComment(draft, null)} disabled={busy || !draft.trim()} style={s.button}>
-              댓글 등록
-            </button>
-          </div>
-        </div>
       </Card>
     </Shell>
   );
